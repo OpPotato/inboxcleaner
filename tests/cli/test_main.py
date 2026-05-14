@@ -11,7 +11,7 @@ from inboxcleaner.core.models import Account, Message, Sender
 def test_help_lists_all_subcommands():
     result = CliRunner().invoke(cli, ["--help"])
     assert result.exit_code == 0
-    for name in ("login", "sync", "senders", "regroup"):
+    for name in ("login", "sync", "senders", "regroup", "show"):
         assert name in result.output
 
 

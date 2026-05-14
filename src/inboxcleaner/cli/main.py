@@ -221,7 +221,7 @@ def show(group_id: int) -> None:
             (group_id,),
         ).fetchall()
 
-        console = Console(width=200, no_color=True)
+        console = Console()
         console.print(
             f"[bold]{group.name}[/bold] (id={group.id}, {msg_count} messages, "
             f"{unsub_count} with List-Unsubscribe)"
