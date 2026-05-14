@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ group.name }} · inboxcleaner{% endblock %}
+{% block content %}
+<p><a href="/groups">← All groups</a></p>
+<h1>{{ group.name }}</h1>
+<p>
+  <strong>{{ msg_count }}</strong> messages
+  · {{ unsub_count }} with List-Unsubscribe
+  · group id {{ group.id }}
+</p>
+
+<div class="action-buttons">
+  <button
+    hx-post="/actions/preview"
+    hx-vals='{"target_kind":"group","target_id":{{ group.id }},"action":"archive"}'
+    hx-target="#modal">Archive all</button>
+  <button
+    hx-post="/actions/preview"
+    hx-vals='{"target_kind":"group","target_id":{{ group.id }},"action":"trash"}'
+    hx-target="#modal" class="contrast">Trash all</button>
+  <button
+    hx-post="/actions/preview"
+    hx-vals='{"target_kind":"group","target_id":{{ group.id }},"action":"label"}'
+    hx-target="#modal">Apply label…</button>
+  <button
+    hx-post="/actions/preview"
+    hx-vals='{"target_kind":"group","target_id":{{ group.id }},"action":"unsubscribe"}'
+    hx-target="#modal">Unsubscribe</button>
+</div>
+
+<h2>Senders</h2>
+<table>
+  <thead><tr><th>Email</th><th>Display name</th><th>Messages</th></tr></thead>
+  <tbody>
+    {% for s in senders %}
+    <tr>
+      <td>{{ s.email }}</td>
+      <td>{{ s.display_name or "" }}</td>
+      <td>{{ sender_counts[s.id] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Recent messages</h2>
+<ul>
+  {% for r in recent %}
+    <li><small>{{ (r["internal_date"] / 1000) | int }}</small> · {{ r["subject"] or "(no subject)" }}</li>
+  {% endfor %}
+</ul>
+{% endblock %}

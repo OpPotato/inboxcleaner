@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -90,6 +90,56 @@ def create_app() -> FastAPI:
                 request,
                 template,
                 {"summaries": summaries, "sort": sort, "category": category},
+            )
+        finally:
+            conn.close()
+
+    @app.get("/groups/{group_id}", response_class=HTMLResponse)
+    def group_detail(request: Request, group_id: int) -> HTMLResponse:
+        conn = _open_db()
+        try:
+            group = repo.get_group(conn, group_id)
+            if group is None:
+                raise HTTPException(status_code=404, detail=f"No group with id {group_id}")
+            senders = repo.senders_for_group(conn, group_id)
+            sender_counts = {
+                s.id: conn.execute(
+                    "SELECT COUNT(*) AS n FROM message WHERE sender_id = ? AND is_trashed = 0",
+                    (s.id,),
+                ).fetchone()["n"]
+                for s in senders
+            }
+            msg_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM message WHERE sender_id IN "
+                "(SELECT id FROM sender WHERE group_id = ?) AND is_trashed = 0",
+                (group_id,),
+            ).fetchone()["n"]
+            unsub_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM message WHERE sender_id IN "
+                "(SELECT id FROM sender WHERE group_id = ?) "
+                "AND is_trashed = 0 AND list_unsubscribe IS NOT NULL",
+                (group_id,),
+            ).fetchone()["n"]
+            recent = conn.execute(
+                """
+                SELECT id, subject, internal_date FROM message
+                WHERE sender_id IN (SELECT id FROM sender WHERE group_id = ?)
+                  AND is_trashed = 0
+                ORDER BY internal_date DESC LIMIT 5
+                """,
+                (group_id,),
+            ).fetchall()
+            return TEMPLATES.TemplateResponse(
+                request,
+                "group_detail.html",
+                {
+                    "group": group,
+                    "senders": senders,
+                    "sender_counts": sender_counts,
+                    "msg_count": msg_count,
+                    "unsub_count": unsub_count,
+                    "recent": recent,
+                },
             )
         finally:
             conn.close()

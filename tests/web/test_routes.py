@@ -83,3 +83,22 @@ def test_groups_category_filter_drops_non_matching(seeded):
     # Filter to social (no matching messages) — group should NOT appear.
     resp = client.get("/groups?category=social")
     assert "Uniqlo" not in resp.text
+
+
+def test_group_detail_shows_senders_and_messages(seeded):
+    _, group_id, _ = seeded
+    client = TestClient(app)
+    resp = client.get(f"/groups/{group_id}")
+    assert resp.status_code == 200
+    assert "Uniqlo" in resp.text
+    assert "a@uniqlo.com" in resp.text
+    assert "Sale" in resp.text
+    # Action buttons present
+    for action in ("archive", "trash", "label", "unsubscribe"):
+        assert action in resp.text.lower()
+
+
+def test_group_detail_404_for_unknown_id(seeded):
+    client = TestClient(app)
+    resp = client.get("/groups/99999")
+    assert resp.status_code == 404
