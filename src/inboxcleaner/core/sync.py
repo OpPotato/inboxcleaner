@@ -57,8 +57,8 @@ async def initial_sync(
             chunk = ids[chunk_start : chunk_start + _BATCH_SIZE]
             metas = await client.batch_get_metadata(chunk, _METADATA_HEADERS)
             for meta in metas:
-                _apply_message_metadata(conn, account.id, meta)
-                applied += 1
+                if _apply_message_metadata(conn, account.id, meta):
+                    applied += 1
                 progress(applied, len(ids))
         repo.upsert_account(
             conn,
@@ -100,8 +100,8 @@ async def incremental_sync(
                 chunk = new_ids[chunk_start : chunk_start + _BATCH_SIZE]
                 metas = await client.batch_get_metadata(chunk, _METADATA_HEADERS)
                 for meta in metas:
-                    _apply_message_metadata(conn, account_id, meta)
-                    applied += 1
+                    if _apply_message_metadata(conn, account_id, meta):
+                        applied += 1
                     progress(applied, len(new_ids))
 
         for event in events:
@@ -140,13 +140,13 @@ def _apply_message_metadata(
     conn: sqlite3.Connection,
     account_id: int,
     meta: GmailMessageMetadata,
-) -> None:
+) -> bool:
     headers = {h["name"].lower(): h["value"] for h in meta["payload"].get("headers", [])}
     from_raw = headers.get("from", "")
     email, display_name = parse_from_header(from_raw)
     if not email:
         logger.warning("Skipping message %s: unparseable From header %r", meta.get("id"), from_raw)
-        return
+        return False
     domain = registered_domain(email)
 
     # Build a snapshot of existing groups + senders for grouping decision.
@@ -184,6 +184,7 @@ def _apply_message_metadata(
         is_trashed="TRASH" in meta["labelIds"],
     )
     repo.upsert_message(conn, msg)
+    return True
 
 
 _CATEGORY_LABELS = {

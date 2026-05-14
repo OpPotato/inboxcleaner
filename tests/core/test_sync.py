@@ -103,6 +103,21 @@ async def test_incremental_sync_handles_hard_delete(conn):
 
 
 @pytest.mark.asyncio
+async def test_initial_sync_skips_unparseable_from(conn):
+    fake = FakeGmailClient(
+        history_id="100",
+        messages={
+            "m1": make_metadata(msg_id="m1", from_="Alice <a@x.com>"),
+            "m2": make_metadata(msg_id="m2", from_=""),  # unparseable
+        },
+        query_ids={DEFAULT_QUERY: ["m1", "m2"]},
+    )
+    result = await initial_sync(fake, conn, account_email="me@example.com")
+    assert result.message_count == 1
+    assert conn.execute("SELECT COUNT(*) FROM message").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
 async def test_incremental_sync_falls_back_to_initial_on_stale_history(conn):
     fake = FakeGmailClient(
         history_id="100",
