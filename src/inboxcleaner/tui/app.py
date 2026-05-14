@@ -54,6 +54,30 @@ def _human_date(ms: int | None) -> str:
     return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d")
 
 
+# Column key → how to extract a sortable value from a GroupSummary.
+def _sort_value(summary, column: str):
+    if column == "id":
+        return summary.id
+    if column == "name":
+        return summary.name.lower() if summary.name else ""
+    if column == "count":
+        return summary.message_count
+    if column == "size":
+        return summary.total_size
+    if column == "date":
+        return summary.latest_message_date or 0
+    return 0
+
+
+_GROUP_COLUMNS: list[tuple[str, str]] = [
+    ("ID", "id"),
+    ("Name", "name"),
+    ("Messages", "count"),
+    ("Size", "size"),
+    ("Latest", "date"),
+]
+
+
 class ConfirmActionModal(ModalScreen[bool]):
     """Preview an action and ask the user to confirm."""
 
@@ -102,6 +126,10 @@ class InboxCleanerApp(App):
         ("u", "act('unsubscribe')", "Unsubscribe"),
     ]
 
+    # Click-to-sort state. None means "use repo's default order (count DESC)".
+    _sort_column: str | None = None
+    _sort_direction: str | None = None  # "desc" | "asc" | None
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(id="groups", cursor_type="row")
@@ -111,22 +139,36 @@ class InboxCleanerApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        groups = self.query_one("#groups", DataTable)
-        groups.add_columns("ID", "Name", "Messages", "Size", "Latest")
         senders = self.query_one("#senders", DataTable)
         senders.add_columns("Email", "Display", "Count")
         recent = self.query_one("#recent", DataTable)
         recent.add_columns("Date", "Subject")
+        # Groups columns are (re)built in _load_groups so the sort indicator
+        # can be embedded in the header text.
         self._load_groups()
 
     def _load_groups(self) -> None:
         groups = self.query_one("#groups", DataTable)
-        groups.clear()
+        prev_gid = self._selected_group_id() if groups.row_count > 0 else None
+        groups.clear(columns=True)
+        for label, key in _GROUP_COLUMNS:
+            if self._sort_column == key:
+                indicator = " ↓" if self._sort_direction == "desc" else " ↑"
+                label = label + indicator
+            groups.add_column(label, key=key)
+
         conn = _open_db()
         try:
-            summaries = repo.groups_with_counts(conn)  # already ordered by count DESC
+            summaries = repo.groups_with_counts(conn)  # default: count DESC
         finally:
             conn.close()
+        if self._sort_column is not None:
+            summaries = sorted(
+                summaries,
+                key=lambda s: _sort_value(s, self._sort_column),
+                reverse=(self._sort_direction == "desc"),
+            )
+
         for s in summaries:
             groups.add_row(
                 str(s.id), s.name, str(s.message_count),
@@ -134,11 +176,40 @@ class InboxCleanerApp(App):
                 _human_date(s.latest_message_date),
                 key=str(s.id),
             )
+
         if groups.row_count > 0:
-            groups.move_cursor(row=0)
+            target_row = 0
+            if prev_gid is not None:
+                for i, key in enumerate(groups.rows):
+                    if key.value == str(prev_gid):
+                        target_row = i
+                        break
+            groups.move_cursor(row=target_row)
             gid = self._selected_group_id()
             if gid is not None:
                 self._load_detail_for(gid)
+
+    def on_data_table_header_selected(
+        self, event: DataTable.HeaderSelected
+    ) -> None:
+        if event.data_table.id != "groups":
+            return
+        col_key = event.column_key.value if event.column_key is not None else None
+        if col_key is None:
+            return
+        if self._sort_column == col_key:
+            # Cycle: desc → asc → unsorted → desc
+            if self._sort_direction == "desc":
+                self._sort_direction = "asc"
+            elif self._sort_direction == "asc":
+                self._sort_column = None
+                self._sort_direction = None
+            else:
+                self._sort_direction = "desc"
+        else:
+            self._sort_column = col_key
+            self._sort_direction = "desc"
+        self._load_groups()
 
     def _selected_group_id(self) -> int | None:
         groups = self.query_one("#groups", DataTable)

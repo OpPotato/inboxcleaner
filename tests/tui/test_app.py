@@ -118,3 +118,106 @@ async def test_cancel_trash_does_not_invoke_gmail(seeded, monkeypatch):
         await pilot.click("#cancel")
         await pilot.pause()
         assert not any(c[0] == "batch_modify" for c in fake.calls)
+
+
+@pytest.fixture
+def seeded_multi(tmp_path, monkeypatch):
+    """Two groups with different message counts and names — exercises sorting."""
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    conn = connect(tmp_path / "inboxcleaner.db")
+    acct = repo.upsert_account(conn, Account(email="me@example.com"))
+    g_a = repo.create_group(conn, name="Alpha", created_by="auto")
+    g_b = repo.create_group(conn, name="Bravo", created_by="auto")
+    s_a = repo.upsert_sender(
+        conn,
+        Sender(email="a@alpha.com", display_name="Alpha", domain="alpha.com", group_id=g_a.id),
+    )
+    s_b = repo.upsert_sender(
+        conn,
+        Sender(email="b@bravo.com", display_name="Bravo", domain="bravo.com", group_id=g_b.id),
+    )
+    # Bravo has 3 messages, Alpha has 1. Default repo order: Bravo, Alpha (count desc).
+    for i in range(3):
+        repo.upsert_message(
+            conn,
+            Message(
+                id=f"b{i}", account_id=acct.id, thread_id=f"tb{i}", sender_id=s_b.id,
+                subject="x", internal_date=2_000_000_000_000 + i, size_estimate=100,
+                category="promotions", labels=[], list_unsubscribe=None,
+            ),
+        )
+    repo.upsert_message(
+        conn,
+        Message(
+            id="a1", account_id=acct.id, thread_id="ta1", sender_id=s_a.id,
+            subject="x", internal_date=1_000_000_000_000, size_estimate=100,
+            category="promotions", labels=[], list_unsubscribe=None,
+        ),
+    )
+    conn.close()
+    return tmp_path, g_a.id, g_b.id
+
+
+async def test_sort_cycle_on_messages_column(seeded_multi):
+    _, alpha_id, bravo_id = seeded_multi
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        groups = app.query_one("#groups")
+        order = lambda: [k.value for k in groups.rows]  # noqa: E731
+
+        # Default (no sort): repo returns count DESC → Bravo (3), Alpha (1)
+        assert order() == [str(bravo_id), str(alpha_id)]
+        assert app._sort_column is None
+
+        # First click: desc
+        app._sort_column = "count"
+        app._sort_direction = "desc"
+        app._load_groups()
+        await pilot.pause()
+        assert order() == [str(bravo_id), str(alpha_id)]
+
+        # Cycle: desc → asc → unsorted → desc (simulate via header click)
+        app.on_data_table_header_selected(_fake_header_event(groups, "count"))
+        await pilot.pause()
+        assert app._sort_direction == "asc"
+        assert order() == [str(alpha_id), str(bravo_id)]
+
+        app.on_data_table_header_selected(_fake_header_event(groups, "count"))
+        await pilot.pause()
+        assert app._sort_column is None
+        assert app._sort_direction is None
+
+        app.on_data_table_header_selected(_fake_header_event(groups, "count"))
+        await pilot.pause()
+        assert app._sort_column == "count"
+        assert app._sort_direction == "desc"
+
+
+async def test_sort_by_name_ascending(seeded_multi):
+    _, alpha_id, bravo_id = seeded_multi
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        groups = app.query_one("#groups")
+        # Click name twice → asc
+        app.on_data_table_header_selected(_fake_header_event(groups, "name"))  # desc
+        app.on_data_table_header_selected(_fake_header_event(groups, "name"))  # asc
+        await pilot.pause()
+        assert [k.value for k in groups.rows] == [str(alpha_id), str(bravo_id)]
+
+
+def _fake_header_event(table, column_key: str):
+    """Construct a DataTable.HeaderSelected-like event without going through
+    the pointer-click event pipeline."""
+    from textual.widgets._data_table import ColumnKey
+
+    class _Evt:
+        pass
+
+    evt = _Evt()
+    evt.data_table = table
+    evt.column_key = ColumnKey(column_key)
+    evt.column_index = 0
+    evt.label = None
+    return evt
