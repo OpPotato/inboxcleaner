@@ -1,0 +1,39 @@
+Screen {
+    layout: horizontal;
+}
+
+#groups {
+    width: 50%;
+    border: solid $primary;
+}
+
+#right-pane {
+    width: 50%;
+    layout: vertical;
+}
+
+#senders {
+    height: 50%;
+    border: solid $secondary;
+}
+
+#recent {
+    height: 50%;
+    border: solid $secondary;
+}
+
+ModalScreen {
+    align: center middle;
+}
+
+#dialog {
+    width: 60;
+    height: auto;
+    border: thick $background;
+    background: $surface;
+    padding: 1 2;
+}
+
+#dialog Button {
+    margin: 0 1;
+}

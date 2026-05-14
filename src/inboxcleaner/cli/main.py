@@ -411,6 +411,14 @@ def regroup() -> None:
 
 
 @cli.command()
+def tui() -> None:
+    """Start the keyboard-driven Textual TUI."""
+    from inboxcleaner.tui.app import main as tui_main
+
+    tui_main()
+
+
+@cli.command()
 @click.option("--host", default="127.0.0.1", show_default=True,
               help="Host interface to bind. Default is loopback only.")
 @click.option("--port", type=int, default=8765, show_default=True)
