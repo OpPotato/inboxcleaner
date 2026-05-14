@@ -175,3 +175,37 @@ async def _run_trash(group, sender, dry_run, yes) -> None:
         )
 
     await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)
+
+
+@_cli.command()
+@_target_options
+@click.option("--name", "label_name", required=True, help="Label name to apply.")
+@_common_options
+def label(
+    group: int | None,
+    sender: int | None,
+    label_name: str,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Apply a Gmail label to messages (auto-creates the label if needed)."""
+    asyncio.run(_run_label(group, sender, label_name, dry_run, yes))
+
+
+async def _run_label(group, sender, label_name, dry_run, yes) -> None:
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        target_kind, target_id = _resolve_target(conn, group, sender)
+    finally:
+        conn.close()
+
+    async def runner(client, conn):
+        return await actions.apply_label(
+            client, conn,
+            target_kind=target_kind, target_id=target_id,
+            label_name=label_name,
+        )
+
+    await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)

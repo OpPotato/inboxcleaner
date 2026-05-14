@@ -101,3 +101,23 @@ def test_trash_yes_invokes_gmail_and_marks_db(seeded_home, monkeypatch):
         assert row["is_trashed"] == 1
     finally:
         conn.close()
+
+
+def test_label_requires_name(seeded_home):
+    _, group_id, _ = seeded_home
+    result = CliRunner().invoke(cli, ["label", "--group", str(group_id), "--dry-run"])
+    assert result.exit_code != 0
+    assert "name" in result.output.lower()
+
+
+def test_label_yes_creates_label_and_applies(seeded_home, monkeypatch):
+    _, group_id, _ = seeded_home
+    fake = FakeGmailClient()
+    monkeypatch.setattr(cli_actions, "_get_client", lambda: fake)
+    result = CliRunner().invoke(
+        cli, ["label", "--group", str(group_id), "--name", "shopping", "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "shopping" in fake.labels
+    mod = next(c for c in fake.calls if c[0] == "batch_modify")
+    assert fake.labels["shopping"] in mod[1]["add"]
