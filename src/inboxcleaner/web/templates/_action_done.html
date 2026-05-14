@@ -1,0 +1,13 @@
+<div class="modal-overlay" hx-on:click="if (event.target === this) this.remove()">
+  <div class="modal">
+    <h3>✓ Done</h3>
+    <p>{{ summary }}</p>
+    {% if result_urls %}
+      <p>Open these unsubscribe URLs:</p>
+      <ul>
+        {% for u in result_urls %}<li><a href="{{ u }}" target="_blank">{{ u }}</a></li>{% endfor %}
+      </ul>
+    {% endif %}
+    <button type="button" onclick="document.querySelector('.modal-overlay').remove(); location.reload();">Close</button>
+  </div>
+</div>

@@ -9,13 +9,15 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
-from inboxcleaner.core import repo
+from inboxcleaner.core import actions, repo
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
+from inboxcleaner.core.gmail import GmailClient, RealGmailClient
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).parent / "templates")
@@ -144,6 +146,93 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    @app.post("/actions/preview", response_class=HTMLResponse)
+    def actions_preview(request: Request, body: _ActionRequest) -> HTMLResponse:
+        if body.target_kind not in ("group", "sender"):
+            raise HTTPException(status_code=400, detail="invalid target_kind")
+        if body.action not in ("archive", "trash", "label", "unsubscribe"):
+            raise HTTPException(status_code=400, detail="invalid action")
+        conn = _open_db()
+        try:
+            preview = actions.preview(
+                conn,
+                target_kind=body.target_kind,  # type: ignore[arg-type]
+                target_id=body.target_id,
+            )
+            return TEMPLATES.TemplateResponse(
+                request,
+                "_action_modal.html",
+                {
+                    "preview": preview,
+                    "action": body.action,
+                    "target_kind": body.target_kind,
+                    "target_id": body.target_id,
+                },
+            )
+        finally:
+            conn.close()
+
+    @app.post("/actions/execute", response_class=HTMLResponse)
+    async def actions_execute(
+        request: Request,
+        target_kind: str = Form(...),
+        target_id: int = Form(...),
+        action: str = Form(...),
+        label_name: str | None = Form(None),
+    ) -> HTMLResponse:
+        if target_kind not in ("group", "sender"):
+            raise HTTPException(status_code=400, detail="invalid target_kind")
+        if action not in ("archive", "trash", "label", "unsubscribe"):
+            raise HTTPException(status_code=400, detail="invalid action")
+        if action == "label" and not label_name:
+            raise HTTPException(status_code=400, detail="label requires label_name")
+        client = _get_client()
+        conn = _open_db()
+        try:
+            tk = target_kind  # type: ignore[assignment]
+            result_urls: list[str] = []
+            if action == "archive":
+                count = await actions.archive(
+                    client, conn, target_kind=tk, target_id=target_id
+                )
+                summary = f"Archived {count} messages."
+            elif action == "trash":
+                count = await actions.trash(
+                    client, conn, target_kind=tk, target_id=target_id
+                )
+                summary = f"Trashed {count} messages."
+            elif action == "label":
+                count = await actions.apply_label(
+                    client,
+                    conn,
+                    target_kind=tk,
+                    target_id=target_id,
+                    label_name=label_name,
+                )
+                summary = f'Labeled {count} messages as "{label_name}".'
+            else:  # unsubscribe
+                result = await actions.unsubscribe(
+                    client, conn, target_kind=tk, target_id=target_id
+                )
+                result_urls = result.http_urls
+                summary = (
+                    f"Unsubscribe: {result.mailto_sent} sent, "
+                    f"{len(result.http_urls)} URLs to visit, "
+                    f"{len(result.skipped)} skipped."
+                )
+            return TEMPLATES.TemplateResponse(
+                request,
+                "_action_done.html",
+                {
+                    "summary": summary,
+                    "target_kind": target_kind,
+                    "target_id": target_id,
+                    "result_urls": result_urls,
+                },
+            )
+        finally:
+            conn.close()
+
     return app
 
 
@@ -151,6 +240,29 @@ def _open_db() -> sqlite3.Connection:
     paths = Paths.default()
     paths.ensure_dirs()
     return connect(paths.db)
+
+
+def _get_client() -> GmailClient:
+    """Build a Gmail client. Monkeypatched in tests."""
+    from inboxcleaner.cli.main import _load_creds_or_die
+
+    paths = Paths.default()
+    paths.ensure_dirs()
+    if not paths.token.exists():
+        raise HTTPException(
+            status_code=401,
+            detail="Not logged in. Run `inboxcleaner login` first.",
+        )
+    secret = paths.token.parent / "client_secret.json"
+    creds = _load_creds_or_die(secret, paths.token)
+    return RealGmailClient(creds)
+
+
+class _ActionRequest(BaseModel):
+    target_kind: str  # "group" or "sender"
+    target_id: int
+    action: str  # "archive" | "trash" | "label" | "unsubscribe"
+    label_name: str | None = None
 
 
 # Module-level app instance for `uvicorn inboxcleaner.web.app:app` and tests.

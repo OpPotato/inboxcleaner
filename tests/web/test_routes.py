@@ -4,7 +4,9 @@ from fastapi.testclient import TestClient
 from inboxcleaner.core import repo
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.models import Account, Message, Sender
+from inboxcleaner.web import app as web_app_module
 from inboxcleaner.web.app import app
+from tests.fakes import FakeGmailClient
 
 
 @pytest.fixture
@@ -102,3 +104,60 @@ def test_group_detail_404_for_unknown_id(seeded):
     client = TestClient(app)
     resp = client.get("/groups/99999")
     assert resp.status_code == 404
+
+
+def test_preview_returns_modal_with_counts(seeded):
+    _, group_id, _ = seeded
+    client = TestClient(app)
+    resp = client.post(
+        "/actions/preview",
+        json={"target_kind": "group", "target_id": group_id, "action": "trash"},
+    )
+    assert resp.status_code == 200
+    assert "1 messages" in resp.text
+    assert "Sale" in resp.text
+    # Modal has a form posting to /actions/execute
+    assert "/actions/execute" in resp.text
+
+
+def test_execute_trash_runs_gmail_and_returns_done_fragment(seeded, monkeypatch):
+    _, group_id, _ = seeded
+    fake = FakeGmailClient()
+    monkeypatch.setattr(web_app_module, "_get_client", lambda: fake)
+    client = TestClient(app)
+    resp = client.post(
+        "/actions/execute",
+        data={"target_kind": "group", "target_id": str(group_id), "action": "trash"},
+    )
+    assert resp.status_code == 200
+    assert "trashed" in resp.text.lower() or "done" in resp.text.lower()
+    mod = next(c for c in fake.calls if c[0] == "batch_modify")
+    assert "TRASH" in mod[1]["add"]
+
+
+def test_execute_label_requires_name(seeded, monkeypatch):
+    _, group_id, _ = seeded
+    fake = FakeGmailClient()
+    monkeypatch.setattr(web_app_module, "_get_client", lambda: fake)
+    client = TestClient(app)
+    resp = client.post(
+        "/actions/execute",
+        data={"target_kind": "group", "target_id": str(group_id), "action": "label"},
+    )
+    assert resp.status_code == 400
+
+
+def test_execute_label_with_name_applies(seeded, monkeypatch):
+    _, group_id, _ = seeded
+    fake = FakeGmailClient()
+    monkeypatch.setattr(web_app_module, "_get_client", lambda: fake)
+    client = TestClient(app)
+    resp = client.post(
+        "/actions/execute",
+        data={
+            "target_kind": "group", "target_id": str(group_id),
+            "action": "label", "label_name": "shopping",
+        },
+    )
+    assert resp.status_code == 200
+    assert "shopping" in fake.labels
