@@ -53,3 +53,15 @@ async def test_app_registers_quit_and_refresh_bindings(seeded):
         keys = [b[0] if isinstance(b, tuple) else b.key for b in app.BINDINGS]
         assert "q" in keys
         assert "r" in keys
+
+
+async def test_groups_loaded_into_left_pane(seeded):
+    _, group_id, _ = seeded
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        groups = app.query_one("#groups")
+        assert groups.row_count == 1
+        # Group id used as the row key
+        row_keys = [str(k.value) for k in groups.rows.keys()]  # noqa: SIM118
+        assert str(group_id) in row_keys

@@ -11,6 +11,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import DataTable, Footer, Header
 
+from inboxcleaner.core import repo
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
 
@@ -19,6 +20,14 @@ def _open_db():
     paths = Paths.default()
     paths.ensure_dirs()
     return connect(paths.db)
+
+
+def _human_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.0f}{unit}"
+        n /= 1024
+    return f"{n:.0f}TB"
 
 
 class InboxCleanerApp(App):
@@ -46,10 +55,25 @@ class InboxCleanerApp(App):
         senders.add_columns("Email", "Display", "Count")
         recent = self.query_one("#recent", DataTable)
         recent.add_columns("Date", "Subject")
+        self._load_groups()
+
+    def _load_groups(self) -> None:
+        groups = self.query_one("#groups", DataTable)
+        groups.clear()
+        conn = _open_db()
+        try:
+            summaries = repo.groups_with_counts(conn)  # already ordered by count DESC
+        finally:
+            conn.close()
+        for s in summaries:
+            groups.add_row(
+                str(s.id), s.name, str(s.message_count),
+                _human_size(s.total_size),
+                key=str(s.id),
+            )
 
     def action_refresh(self) -> None:
-        """Reload everything from the DB (filled in by Task 2)."""
-        pass
+        self._load_groups()
 
 
 def main() -> None:
