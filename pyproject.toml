@@ -30,6 +30,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/inboxcleaner"]
+include = ["src/inboxcleaner/**/*.sql"]
 
 [tool.ruff]
 line-length = 100
