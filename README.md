@@ -10,13 +10,13 @@ This is a personal project. The repository is public for visibility but **not ac
 uv sync
 uv run inboxcleaner setup            # one-time guided Cloud Console setup
 uv run inboxcleaner sync             # initial sync; subsequent runs are incremental
+uv run inboxcleaner web              # browse + clean up in your browser (recommended)
+# ...or stay in the terminal:
 uv run inboxcleaner senders --sort count --limit 30
-uv run inboxcleaner show <group_id>                          # drill into a group
-uv run inboxcleaner trash --group <group_id> --dry-run       # preview
-uv run inboxcleaner trash --group <group_id>                 # confirm + execute
+uv run inboxcleaner trash --group <group_id>
 ~~~
 
-`setup` walks you through creating your own Google Cloud project (so you don't share credentials with the project author) and runs `login` for you. After that, sync and use any of the action commands (`archive`, `trash`, `label --name X`, `unsubscribe`) with `--group ID` or `--sender ID`, plus `--dry-run` and `--yes`.
+`setup` walks you through creating your own Google Cloud project (so you don't share credentials with the project author) and runs `login` for you. `inboxcleaner web` then starts a local server on `127.0.0.1:8765` and opens your browser. The CLI commands (`show`, `archive`, `trash`, `label`, `unsubscribe`) still work for terminal-driven cleanup — each accepts `--group ID` or `--sender ID`, plus `--dry-run` and `--yes`.
 
 ## Status
 
