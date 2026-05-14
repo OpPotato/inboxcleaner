@@ -1,9 +1,11 @@
 import asyncio
+import contextlib
 import json as _json
 from datetime import datetime
 from pathlib import Path
 
 import click
+from google.auth.exceptions import RefreshError
 from rich.console import Console
 from rich.progress import Progress
 from rich.table import Table
@@ -16,6 +18,19 @@ from inboxcleaner.core.grouping import ExistingGroup, GroupIndex, assign_group
 from inboxcleaner.core.logging_setup import configure_logging
 from inboxcleaner.core.models import Sender
 from inboxcleaner.core.sync import DEFAULT_QUERY, incremental_sync, initial_sync
+
+
+def _load_creds_or_die(client_secret: Path, token_path: Path):
+    try:
+        return load_or_run_oauth(client_secret, token_path)
+    except RefreshError as exc:
+        # Refresh token has been revoked or expired. Clear the cache and ask the user to re-login.
+        with contextlib.suppress(FileNotFoundError):
+            token_path.unlink()
+        raise click.ClickException(
+            f"Cached OAuth token at {token_path} was rejected ({exc}). "
+            "It's been cleared — re-run `inboxcleaner login`."
+        ) from exc
 
 
 @click.group()
@@ -48,7 +63,7 @@ def login(client_secret: Path | None) -> None:
             "Get one from https://console.cloud.google.com/apis/credentials "
             "(OAuth client ID, Desktop application), then place the JSON there."
         )
-    load_or_run_oauth(client_secret, paths.token)
+    _load_creds_or_die(client_secret, paths.token)
     click.echo(f"Authenticated. Token cached at {paths.token}.")
 
 
@@ -65,7 +80,7 @@ async def _run_sync(query: str) -> None:
     if not paths.token.exists():
         raise click.ClickException("Not logged in. Run `inboxcleaner login` first.")
     secret = paths.token.parent / "client_secret.json"
-    creds = load_or_run_oauth(secret, paths.token)
+    creds = _load_creds_or_die(secret, paths.token)
     client = RealGmailClient(creds)
     conn = connect(paths.db)
     try:

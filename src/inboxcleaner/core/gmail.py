@@ -6,6 +6,9 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+from inboxcleaner.core.ratelimit import RateLimited, TokenBucket, retry_on_rate_limit
 
 
 class GmailMessageMetadata(TypedDict):
@@ -78,11 +81,23 @@ def load_or_run_oauth(client_secret_path: Path, token_path: Path) -> Credentials
 
 
 class RealGmailClient:
+    # rate limit shared across all instances; Gmail's quota is per-user
+    _bucket = TokenBucket(rate_per_sec=50, capacity=50)
+
     def __init__(self, creds: Credentials) -> None:
         self._service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     async def _run(self, fn, *args, **kwargs):
-        return await asyncio.to_thread(fn, *args, **kwargs)
+        async def attempt():
+            await self._bucket.take(1)
+            try:
+                return await asyncio.to_thread(fn, *args, **kwargs)
+            except HttpError as exc:
+                if getattr(exc.resp, "status", None) == 429:
+                    raise RateLimited() from exc
+                raise
+
+        return await retry_on_rate_limit(attempt)
 
     async def get_profile(self) -> dict:
         def go():
@@ -156,8 +171,8 @@ class RealGmailClient:
 
             try:
                 resp = await self._run(go)
-            except Exception as e:
-                if "404" in str(e) or "startHistoryId" in str(e):
+            except HttpError as exc:
+                if getattr(exc.resp, "status", None) == 404:
                     return [], None
                 raise
             new_history_id = resp.get("historyId", new_history_id)
