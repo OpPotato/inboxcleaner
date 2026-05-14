@@ -48,6 +48,12 @@ def _human_size(n: int) -> str:
     return f"{n:.0f}TB"
 
 
+def _human_date(ms: int | None) -> str:
+    if ms is None:
+        return "-"
+    return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d")
+
+
 class ConfirmActionModal(ModalScreen[bool]):
     """Preview an action and ask the user to confirm."""
 
@@ -106,7 +112,7 @@ class InboxCleanerApp(App):
 
     def on_mount(self) -> None:
         groups = self.query_one("#groups", DataTable)
-        groups.add_columns("ID", "Name", "Messages", "Size")
+        groups.add_columns("ID", "Name", "Messages", "Size", "Latest")
         senders = self.query_one("#senders", DataTable)
         senders.add_columns("Email", "Display", "Count")
         recent = self.query_one("#recent", DataTable)
@@ -125,6 +131,7 @@ class InboxCleanerApp(App):
             groups.add_row(
                 str(s.id), s.name, str(s.message_count),
                 _human_size(s.total_size),
+                _human_date(s.latest_message_date),
                 key=str(s.id),
             )
         if groups.row_count > 0:

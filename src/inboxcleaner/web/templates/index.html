@@ -1,14 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>inboxcleaner</h1>
+<header class="hero">
+  <h1>inboxcleaner</h1>
+  <p class="tagline">Group your Gmail senders by company. Bulk-act on them.</p>
+</header>
+
 {% if account %}
-  <p><strong>Account:</strong> {{ account.email }}</p>
-  <p><strong>Last sync:</strong> {{ last_sync or "never" }}</p>
-  <p><strong>Cache:</strong> {{ message_count }} messages across {{ group_count }} groups.</p>
-  <p><a href="/groups" role="button">Browse groups →</a></p>
+  <section class="cards">
+    <article class="card">
+      <h3>Account</h3>
+      <p class="card-value">{{ account.email }}</p>
+      <p class="card-sub">Last sync: {{ last_sync or "never" }}</p>
+    </article>
+    <article class="card">
+      <h3>Cached</h3>
+      <p class="card-value">{{ "{:,}".format(message_count) }} messages</p>
+      <p class="card-sub">across {{ "{:,}".format(group_count) }} groups</p>
+    </article>
+  </section>
+
+  <p class="cta">
+    <a href="/groups" role="button">Browse groups →</a>
+  </p>
 {% else %}
-  <p>No synced account found.</p>
-  <p>Run <code>inboxcleaner setup</code> then <code>inboxcleaner sync</code> in the terminal first.</p>
+  <article class="empty-state">
+    <h2>No synced account yet</h2>
+    <p>Get started with two commands in your terminal:</p>
+    <pre><code>uv run inboxcleaner setup
+uv run inboxcleaner sync</code></pre>
+    <p>Then reload this page.</p>
+  </article>
 {% endif %}
-<p><small>Sync from the terminal: <code>inboxcleaner sync</code></small></p>
+
+<p class="footnote"><small>To refresh the cache: <code>inboxcleaner sync</code> in your terminal.</small></p>
 {% endblock %}

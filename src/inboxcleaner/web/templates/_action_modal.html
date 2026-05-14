@@ -4,7 +4,7 @@
     <p><strong>{{ preview.message_count }} messages</strong>
        ({{ preview.total_size | filesizeformat }})</p>
     {% if preview.samples %}
-    <p>Sample subjects:</p>
+    <p><small>Sample subjects:</small></p>
     <ul>
       {% for s in preview.samples %}<li>{{ s.subject or "(no subject)" }}</li>{% endfor %}
     </ul>
@@ -14,11 +14,11 @@
       <input type="hidden" name="target_id" value="{{ target_id }}">
       <input type="hidden" name="action" value="{{ action }}">
       {% if action == "label" %}
-        <label>Label name <input name="label_name" required></label>
+        <label>Label name <input name="label_name" required placeholder="e.g. shopping"></label>
       {% endif %}
       <div class="action-buttons">
-        <button type="submit">Confirm</button>
-        <button type="button" onclick="document.querySelector('.modal-overlay').remove()">Cancel</button>
+        <button type="button" class="secondary" onclick="document.querySelector('.modal-overlay').remove()">Cancel</button>
+        <button type="submit" {% if action == "trash" %}class="danger"{% endif %}>Confirm {{ action }}</button>
       </div>
     </form>
   </div>

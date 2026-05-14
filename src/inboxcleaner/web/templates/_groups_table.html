@@ -1,17 +1,17 @@
-<table>
+<table class="groups-table">
   <thead>
     <tr>
-      <th>ID</th>
-      <th>Name</th>
-      <th class="sortable"><a href="?sort=count&category={{ category }}"
+      <th class="col-id">ID</th>
+      <th class="col-name">Name</th>
+      <th class="col-num sortable"><a href="?sort=count&category={{ category }}"
             class="sort-link"
             hx-get="/groups?sort=count&category={{ category }}"
             hx-target="#groups-table">Messages{% if sort == "count" %} ↓{% endif %}</a></th>
-      <th class="sortable"><a href="?sort=size&category={{ category }}"
+      <th class="col-num sortable"><a href="?sort=size&category={{ category }}"
             class="sort-link"
             hx-get="/groups?sort=size&category={{ category }}"
-            hx-target="#groups-table">Total size{% if sort == "size" %} ↓{% endif %}</a></th>
-      <th class="sortable"><a href="?sort=date&category={{ category }}"
+            hx-target="#groups-table">Size{% if sort == "size" %} ↓{% endif %}</a></th>
+      <th class="col-date sortable"><a href="?sort=date&category={{ category }}"
             class="sort-link"
             hx-get="/groups?sort=date&category={{ category }}"
             hx-target="#groups-table">Latest{% if sort == "date" %} ↓{% endif %}</a></th>
@@ -20,11 +20,11 @@
   <tbody>
     {% for s in summaries %}
     <tr>
-      <td>{{ s.id }}</td>
-      <td><a href="/groups/{{ s.id }}">{{ s.name }}</a></td>
-      <td>{{ s.message_count }}</td>
-      <td>{{ s.total_size | filesizeformat }}</td>
-      <td>{% if s.latest_message_date %}{{ (s.latest_message_date / 1000) | int }}{% else %}—{% endif %}</td>
+      <td class="col-id"><small>{{ s.id }}</small></td>
+      <td class="col-name"><a href="/groups/{{ s.id }}">{{ s.name }}</a></td>
+      <td class="col-num">{{ s.message_count }}</td>
+      <td class="col-num">{{ s.total_size | filesizeformat }}</td>
+      <td class="col-date">{{ s.latest_message_date | human_date }}</td>
     </tr>
     {% endfor %}
   </tbody>

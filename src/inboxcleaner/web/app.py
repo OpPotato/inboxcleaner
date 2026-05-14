@@ -7,6 +7,7 @@ core.actions for mutations.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -22,6 +23,15 @@ from inboxcleaner.core.gmail import GmailClient, RealGmailClient
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).parent / "templates")
 )
+
+
+def _human_date(ms: int | None) -> str:
+    if ms is None:
+        return "—"
+    return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d")
+
+
+TEMPLATES.env.filters["human_date"] = _human_date
 
 
 def create_app() -> FastAPI:
