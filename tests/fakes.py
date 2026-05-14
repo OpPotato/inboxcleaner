@@ -1,6 +1,6 @@
 from typing import Any
 
-from inboxcleaner.core.gmail import GmailClient, GmailMessageMetadata, HistoryEvent
+from inboxcleaner.core.gmail import GmailMessageMetadata, HistoryEvent
 
 
 class FakeGmailClient:
@@ -106,7 +106,3 @@ def make_metadata(
         labelIds=labels or ["CATEGORY_PROMOTIONS"],
         payload={"headers": headers},
     )
-
-
-# Satisfy the Protocol at import time (structural check only)
-_: GmailClient = FakeGmailClient()  # type: ignore[assignment]
