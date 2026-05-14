@@ -302,5 +302,11 @@ def regroup() -> None:
         conn.close()
 
 
+# Register CLI action subcommands (archive, trash, label, unsubscribe).
+# Import is at the bottom to avoid circular imports — actions.py needs `cli`
+# from this module.
+from inboxcleaner.cli import actions  # noqa: E402, F401
+
+
 def main() -> None:
     cli()

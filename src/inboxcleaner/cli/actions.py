@@ -7,6 +7,7 @@ preview via core.actions.preview(), prints it, and either exits (with
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 import click
@@ -16,6 +17,7 @@ from rich.table import Table
 # _human_size and _human_date already live in cli.main from Task 16 —
 # reuse them here rather than duplicating to keep formats consistent.
 from inboxcleaner.cli.main import _human_date, _human_size
+from inboxcleaner.cli.main import cli as _cli
 from inboxcleaner.core import actions, repo
 from inboxcleaner.core.actions import ActionPreview
 from inboxcleaner.core.config import Paths
@@ -107,3 +109,69 @@ async def _confirm_and_run(
         click.echo(f"Done: {result}")
     finally:
         conn.close()
+
+
+def _target_options(fn):
+    """Add --group/--sender option pair to a command."""
+    fn = click.option("--sender", "sender", type=int, default=None,
+                      help="Operate on a single sender by id.")(fn)
+    fn = click.option("--group", "group", type=int, default=None,
+                      help="Operate on all senders in a group by id.")(fn)
+    return fn
+
+
+def _common_options(fn):
+    fn = click.option("--yes", is_flag=True, help="Skip confirmation prompt.")(fn)
+    fn = click.option("--dry-run", is_flag=True,
+                      help="Show preview and exit without contacting Gmail.")(fn)
+    return fn
+
+
+@_cli.command()
+@_target_options
+@_common_options
+def archive(group: int | None, sender: int | None, dry_run: bool, yes: bool) -> None:
+    """Archive messages (remove INBOX label) for a group or sender."""
+    asyncio.run(_run_archive(group, sender, dry_run, yes))
+
+
+async def _run_archive(group, sender, dry_run, yes) -> None:
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        target_kind, target_id = _resolve_target(conn, group, sender)
+    finally:
+        conn.close()
+
+    async def runner(client, conn):
+        return await actions.archive(
+            client, conn, target_kind=target_kind, target_id=target_id
+        )
+
+    await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)
+
+
+@_cli.command()
+@_target_options
+@_common_options
+def trash(group: int | None, sender: int | None, dry_run: bool, yes: bool) -> None:
+    """Move messages to Gmail Trash (recoverable for 30 days)."""
+    asyncio.run(_run_trash(group, sender, dry_run, yes))
+
+
+async def _run_trash(group, sender, dry_run, yes) -> None:
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        target_kind, target_id = _resolve_target(conn, group, sender)
+    finally:
+        conn.close()
+
+    async def runner(client, conn):
+        return await actions.trash(
+            client, conn, target_kind=target_kind, target_id=target_id
+        )
+
+    await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)
