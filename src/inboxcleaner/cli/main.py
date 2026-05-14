@@ -12,7 +12,9 @@ from inboxcleaner.core import repo
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.gmail import RealGmailClient, load_or_run_oauth
+from inboxcleaner.core.grouping import ExistingGroup, GroupIndex, assign_group
 from inboxcleaner.core.logging_setup import configure_logging
+from inboxcleaner.core.models import Sender
 from inboxcleaner.core.sync import DEFAULT_QUERY, incremental_sync, initial_sync
 
 
@@ -187,8 +189,41 @@ def _human_date(ms: int | None) -> str:
 
 @cli.command()
 def regroup() -> None:
-    """Re-run grouping over all senders."""
-    click.echo("regroup: not yet implemented (Task 17)")
+    """Drop auto-created groups and re-run grouping over all senders."""
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        # Detach senders from auto groups; keep manual ones.
+        conn.execute(
+            """
+            UPDATE sender SET group_id = NULL
+            WHERE group_id IN (SELECT id FROM sender_group WHERE created_by = 'auto')
+            """
+        )
+        conn.execute("DELETE FROM sender_group WHERE created_by = 'auto'")
+
+        sender_rows = conn.execute("SELECT * FROM sender ORDER BY id").fetchall()
+        assigned = 0
+        for r in sender_rows:
+            s = Sender(**dict(r))
+            current_senders = [
+                Sender(**dict(rr))
+                for rr in conn.execute(
+                    "SELECT * FROM sender WHERE group_id IS NOT NULL"
+                ).fetchall()
+            ]
+            idx = GroupIndex(groups=repo.all_groups(conn), senders=current_senders)
+            decision = assign_group(s, idx)
+            if isinstance(decision, ExistingGroup):
+                group_id = decision.group_id
+            else:
+                group_id = repo.create_group(conn, name=decision.name, created_by="auto").id
+            repo.reassign_sender(conn, s.id, group_id)
+            assigned += 1
+        click.echo(f"Regrouped {assigned} senders.")
+    finally:
+        conn.close()
 
 
 def main() -> None:

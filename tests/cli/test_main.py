@@ -74,3 +74,41 @@ def test_senders_json_output(tmp_path, monkeypatch):
     assert len(data) == 1
     assert data[0]["name"] == "Uniqlo"
     assert data[0]["message_count"] == 1
+
+
+def test_regroup_rebuilds_auto_groups(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    conn = connect(tmp_path / "inboxcleaner.db")
+    # Two senders that should end up in the same group by domain.
+    repo.upsert_account(conn, Account(email="me@example.com"))
+    g1 = repo.create_group(conn, name="Uniqlo", created_by="auto")
+    g2 = repo.create_group(conn, name="Uniqlo Newsletter", created_by="auto")
+    repo.upsert_sender(
+        conn,
+        Sender(email="a@uniqlo.com", display_name="Uniqlo", domain="uniqlo.com", group_id=g1.id),
+    )
+    repo.upsert_sender(
+        conn,
+        Sender(
+            email="b@email.uniqlo.com",
+            display_name="Uniqlo Newsletter",
+            domain="uniqlo.com",
+            group_id=g2.id,
+        ),
+    )
+    conn.close()
+
+    result = CliRunner().invoke(cli, ["regroup"])
+    assert result.exit_code == 0
+
+    conn = connect(tmp_path / "inboxcleaner.db")
+    # Should be exactly one auto group now (both senders join it)
+    groups = conn.execute(
+        "SELECT COUNT(*) AS n FROM sender_group WHERE created_by = 'auto'"
+    ).fetchone()["n"]
+    assert groups == 1
+    distinct_groups = conn.execute(
+        "SELECT COUNT(DISTINCT group_id) AS n FROM sender"
+    ).fetchone()["n"]
+    assert distinct_groups == 1
+    conn.close()
