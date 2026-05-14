@@ -14,8 +14,6 @@ dist/
 .mypy_cache/
 .pytest_cache/
 
-# uv
-uv.lock
 
 # Local config / secrets (the real ones live under ~/.config/inboxcleaner)
 .env
