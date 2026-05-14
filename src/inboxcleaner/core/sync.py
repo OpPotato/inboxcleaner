@@ -52,12 +52,15 @@ async def initial_sync(
         account = repo.upsert_account(conn, Account(email=account_email))
         ids = await client.list_message_ids(query)
         progress(0, len(ids))
+        sender_rows = conn.execute("SELECT * FROM sender").fetchall()
+        existing_senders = [Sender(**dict(r)) for r in sender_rows]
+        group_index = GroupIndex(groups=repo.all_groups(conn), senders=existing_senders)
         applied = 0
         for chunk_start in range(0, len(ids), _BATCH_SIZE):
             chunk = ids[chunk_start : chunk_start + _BATCH_SIZE]
             metas = await client.batch_get_metadata(chunk, _METADATA_HEADERS)
             for meta in metas:
-                if _apply_message_metadata(conn, account.id, meta):
+                if _apply_message_metadata(conn, account.id, meta, group_index):
                     applied += 1
                 progress(applied, len(ids))
         repo.upsert_account(
@@ -92,6 +95,9 @@ async def incremental_sync(
             # Stale — fall back to full re-list
             return await _do_initial(client, conn, row["email"], progress)
 
+        sender_rows = conn.execute("SELECT * FROM sender").fetchall()
+        existing_senders = [Sender(**dict(r)) for r in sender_rows]
+        group_index = GroupIndex(groups=repo.all_groups(conn), senders=existing_senders)
         applied = 0
         # Fetch metadata for new messages in batch
         new_ids = [e["message_id"] for e in events if e["type"] == "messageAdded"]
@@ -100,7 +106,7 @@ async def incremental_sync(
                 chunk = new_ids[chunk_start : chunk_start + _BATCH_SIZE]
                 metas = await client.batch_get_metadata(chunk, _METADATA_HEADERS)
                 for meta in metas:
-                    if _apply_message_metadata(conn, account_id, meta):
+                    if _apply_message_metadata(conn, account_id, meta, group_index):
                         applied += 1
                     progress(applied, len(new_ids))
 
@@ -140,7 +146,13 @@ def _apply_message_metadata(
     conn: sqlite3.Connection,
     account_id: int,
     meta: GmailMessageMetadata,
+    index: GroupIndex,
 ) -> bool:
+    """Apply one Gmail message metadata to the DB.
+
+    Mutates `index` in-place: appends the newly-seen sender (and possibly
+    a new group). Returns True iff a message row was written.
+    """
     headers = {h["name"].lower(): h["value"] for h in meta["payload"].get("headers", [])}
     from_raw = headers.get("from", "")
     email, display_name = parse_from_header(from_raw)
@@ -149,25 +161,23 @@ def _apply_message_metadata(
         return False
     domain = registered_domain(email)
 
-    # Build a snapshot of existing groups + senders for grouping decision.
-    groups = repo.all_groups(conn)
-    sender_rows = conn.execute("SELECT * FROM sender").fetchall()
-    existing_senders = [Sender(**dict(r)) for r in sender_rows]
-    idx = GroupIndex(groups=groups, senders=existing_senders)
-    decision = assign_group(
-        Sender(email=email, display_name=display_name, domain=domain), idx
-    )
+    candidate = Sender(email=email, display_name=display_name, domain=domain)
+    decision = assign_group(candidate, index)
     if isinstance(decision, ExistingGroup):
         group_id = decision.group_id
     else:
-        group_id = repo.create_group(
-            conn, name=decision.name, created_by="auto"
-        ).id
+        new_group = repo.create_group(conn, name=decision.name, created_by="auto")
+        group_id = new_group.id
+        # Track the new group in our local snapshot for subsequent decisions.
+        index.groups.append(new_group)
 
     sender = repo.upsert_sender(
         conn,
         Sender(email=email, display_name=display_name, domain=domain, group_id=group_id),
     )
+    # Track this sender (with id) in the snapshot so future messages can
+    # match by domain/display_name.
+    index.senders.append(sender)
 
     category = _category_from_labels(meta["labelIds"])
     msg = Message(
