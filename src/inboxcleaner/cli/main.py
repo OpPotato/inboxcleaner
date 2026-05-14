@@ -23,8 +23,11 @@ def cli() -> None:
     "--client-secret",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Path to Google OAuth client_secret.json. "
-         "Defaults to $INBOXCLEANER_HOME/client_secret.json or ~/.config/inboxcleaner/client_secret.json.",
+    help=(
+        "Path to Google OAuth client_secret.json. "
+        "Defaults to $INBOXCLEANER_HOME/client_secret.json "
+        "or ~/.config/inboxcleaner/client_secret.json."
+    ),
 )
 def login(client_secret: Path | None) -> None:
     """Run the Gmail OAuth flow and cache the refresh token."""
@@ -38,7 +41,7 @@ def login(client_secret: Path | None) -> None:
             "Get one from https://console.cloud.google.com/apis/credentials "
             "(OAuth client ID, Desktop application), then place the JSON there."
         )
-    creds = load_or_run_oauth(client_secret, paths.token)
+    load_or_run_oauth(client_secret, paths.token)
     click.echo(f"Authenticated. Token cached at {paths.token}.")
 
 
