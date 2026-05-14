@@ -138,7 +138,7 @@ class RealGmailClient:
                     .get(
                         userId="me",
                         id=mid,
-                        format="METADATA",
+                        format="metadata",
                         metadataHeaders=metadata_headers,
                     )
                     .execute()
