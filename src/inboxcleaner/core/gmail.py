@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from typing import Protocol, TypedDict
 
@@ -9,6 +10,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from inboxcleaner.core.ratelimit import RateLimited, TokenBucket, retry_on_rate_limit
+
+logger = logging.getLogger(__name__)
 
 
 class GmailMessageMetadata(TypedDict):
@@ -127,27 +130,48 @@ class RealGmailClient:
     async def batch_get_metadata(
         self, message_ids: list[str], metadata_headers: list[str]
     ) -> list[GmailMessageMetadata]:
-        # google-api-python-client supports BatchHttpRequest, but it's awkward to
-        # use cleanly. For v1 we make parallel single calls via to_thread; the
-        # ratelimit module enforces the safe rate.
-        async def fetch_one(mid: str) -> GmailMessageMetadata:
+        # Gmail's BatchHttpRequest packs up to 100 sub-requests into a single
+        # multipart HTTP call. One thread, one socket — no httplib2 races.
+        # Per-sub-request quota still applies (messages.get METADATA = 5 units
+        # each); rate limiting is enforced once per batch via the token bucket.
+        if not message_ids:
+            return []
+
+        results: list[GmailMessageMetadata] = []
+
+        def on_response(request_id, response, exception):
+            if exception is not None:
+                logger.warning("Batch sub-request %s failed: %s", request_id, exception)
+                return
+            results.append(response)
+
+        async def attempt() -> None:
+            await self._bucket.take(len(message_ids))
+
             def go():
-                return (
-                    self._service.users()
-                    .messages()
-                    .get(
-                        userId="me",
-                        id=mid,
-                        format="metadata",
-                        metadataHeaders=metadata_headers,
+                batch = self._service.new_batch_http_request(callback=on_response)
+                for mid in message_ids:
+                    batch.add(
+                        self._service.users()
+                        .messages()
+                        .get(
+                            userId="me",
+                            id=mid,
+                            format="metadata",
+                            metadataHeaders=metadata_headers,
+                        )
                     )
-                    .execute()
-                )
+                batch.execute()
 
-            return await self._run(go)
+            try:
+                await asyncio.to_thread(go)
+            except HttpError as exc:
+                if getattr(exc.resp, "status", None) == 429:
+                    raise RateLimited() from exc
+                raise
 
-        results = await asyncio.gather(*(fetch_one(mid) for mid in message_ids))
-        return list(results)
+        await retry_on_rate_limit(attempt)
+        return results
 
     async def history_since(
         self, start_history_id: str

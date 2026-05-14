@@ -38,3 +38,15 @@ async def test_retry_gives_up_after_max_attempts():
 
     with pytest.raises(RateLimited):
         await retry_on_rate_limit(always_429, max_attempts=3, base_delay=0.001)
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_take_larger_than_capacity():
+    """take(n) must handle n > capacity by chunking the request."""
+    bucket = TokenBucket(rate_per_sec=50, capacity=50)
+    start = time.monotonic()
+    # 100 tokens against capacity 50: first chunk is immediate (bucket starts
+    # full), second chunk requires ~1s of refill.
+    await bucket.take(100)
+    elapsed = time.monotonic() - start
+    assert 0.8 <= elapsed <= 2.5, f"unexpected elapsed: {elapsed}"

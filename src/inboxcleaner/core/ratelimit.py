@@ -22,19 +22,24 @@ class TokenBucket:
         self._lock = asyncio.Lock()
 
     async def take(self, n: int = 1) -> None:
-        while True:
-            async with self._lock:
-                now = time.monotonic()
-                self._tokens = min(
-                    self._capacity, self._tokens + (now - self._last) * self._rate
-                )
-                self._last = now
-                if self._tokens >= n:
-                    self._tokens -= n
-                    return
-                deficit = n - self._tokens
-                wait = deficit / self._rate
-            await asyncio.sleep(wait)
+        """Take n tokens. n may exceed capacity; the take is chunked internally."""
+        remaining = n
+        while remaining > 0:
+            chunk = min(remaining, self._capacity)
+            while True:
+                async with self._lock:
+                    now = time.monotonic()
+                    self._tokens = min(
+                        self._capacity, self._tokens + (now - self._last) * self._rate
+                    )
+                    self._last = now
+                    if self._tokens >= chunk:
+                        self._tokens -= chunk
+                        break
+                    deficit = chunk - self._tokens
+                    wait = deficit / self._rate
+                await asyncio.sleep(wait)
+            remaining -= chunk
 
 
 async def retry_on_rate_limit[T](
