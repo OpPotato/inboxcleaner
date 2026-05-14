@@ -1,8 +1,10 @@
 import json as json_mod
 
+import click
+import pytest
 from click.testing import CliRunner
 
-from inboxcleaner.cli.main import cli
+from inboxcleaner.cli.main import _install_client_secret, cli
 from inboxcleaner.core import repo
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.models import Account, Message, Sender
@@ -180,3 +182,57 @@ def test_show_errors_when_group_missing(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli, ["show", "999"])
     assert result.exit_code != 0
     assert "999" in result.output
+
+
+def _valid_desktop_secret() -> dict:
+    return {
+        "installed": {
+            "client_id": "1234.apps.googleusercontent.com",
+            "client_secret": "GOCSPX-xxxxx",
+            "redirect_uris": ["http://localhost"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+
+
+def test_install_client_secret_happy_path(tmp_path):
+    src = tmp_path / "downloaded.json"
+    src.write_text(json_mod.dumps(_valid_desktop_secret()))
+    dest = tmp_path / "config" / "client_secret.json"
+    _install_client_secret(src, dest)
+    assert dest.exists()
+    assert json_mod.loads(dest.read_text()) == _valid_desktop_secret()
+    mode = dest.stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+def test_install_client_secret_rejects_invalid_json(tmp_path):
+    src = tmp_path / "bad.json"
+    src.write_text("not json at all {{{")
+    dest = tmp_path / "client_secret.json"
+    with pytest.raises(click.ClickException) as exc_info:
+        _install_client_secret(src, dest)
+    assert "not valid JSON" in str(exc_info.value.message)
+    assert not dest.exists()
+
+
+def test_install_client_secret_rejects_web_app_credential(tmp_path):
+    # Web app OAuth clients use a "web" top-level key, not "installed".
+    src = tmp_path / "web.json"
+    src.write_text(json_mod.dumps({"web": {"client_id": "x"}}))
+    dest = tmp_path / "client_secret.json"
+    with pytest.raises(click.ClickException) as exc_info:
+        _install_client_secret(src, dest)
+    assert "Desktop" in str(exc_info.value.message)
+    assert not dest.exists()
+
+
+def test_install_client_secret_rejects_missing_required_fields(tmp_path):
+    src = tmp_path / "incomplete.json"
+    src.write_text(json_mod.dumps({"installed": {"client_id": "x"}}))
+    dest = tmp_path / "client_secret.json"
+    with pytest.raises(click.ClickException) as exc_info:
+        _install_client_secret(src, dest)
+    assert "missing" in str(exc_info.value.message).lower()
+    assert not dest.exists()

@@ -20,6 +20,34 @@ from inboxcleaner.core.models import Sender
 from inboxcleaner.core.sync import DEFAULT_QUERY, incremental_sync, initial_sync
 
 
+def _install_client_secret(src: Path, dest: Path) -> None:
+    """Validate a downloaded Google OAuth JSON is a Desktop-application
+    credential, then copy it to `dest` with 0o600 permissions.
+
+    Raises click.ClickException on invalid JSON, wrong client type, or
+    missing required fields.
+    """
+    try:
+        data = _json.loads(src.read_text())
+    except _json.JSONDecodeError as exc:
+        raise click.ClickException(f"{src} is not valid JSON: {exc}") from exc
+    if "installed" not in data:
+        raise click.ClickException(
+            f"{src} is not a Desktop application credential. Expected an "
+            "'installed' top-level key. If you created a Web or Mobile OAuth "
+            "client, recreate it with Application type 'Desktop app'."
+        )
+    required = ("client_id", "client_secret", "redirect_uris")
+    missing = [k for k in required if k not in data["installed"]]
+    if missing:
+        raise click.ClickException(
+            f"{src} is missing required fields under 'installed': {missing}"
+        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(src.read_text())
+    dest.chmod(0o600)
+
+
 def _load_creds_or_die(client_secret: Path, token_path: Path):
     try:
         return load_or_run_oauth(client_secret, token_path)
