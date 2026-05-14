@@ -161,3 +161,61 @@ def test_execute_label_with_name_applies(seeded, monkeypatch):
     )
     assert resp.status_code == 200
     assert "shopping" in fake.labels
+
+
+def test_recent_fragment_returns_all_messages_for_group(seeded):
+    _, group_id, _ = seeded
+    client = TestClient(app)
+    resp = client.get(f"/recent?group_id={group_id}")
+    assert resp.status_code == 200
+    assert "Sale" in resp.text
+    # No "Show all" button when not filtered
+    assert "Show all" not in resp.text
+    # No <html> wrapper — it's a fragment
+    assert "<html" not in resp.text
+
+
+def test_recent_fragment_filters_to_sender(seeded):
+    _, group_id, sender_id = seeded
+    client = TestClient(app)
+    resp = client.get(f"/recent?group_id={group_id}&sender_id={sender_id}")
+    assert resp.status_code == 200
+    assert "Sale" in resp.text
+    # Sender heading visible
+    assert "a@uniqlo.com" in resp.text
+    # Reset button present
+    assert "Show all" in resp.text
+
+
+def test_recent_fragment_404_for_wrong_group(seeded):
+    _, _, sender_id = seeded
+    client = TestClient(app)
+    resp = client.get(f"/recent?group_id=99999&sender_id={sender_id}")
+    assert resp.status_code == 404
+
+
+def test_recent_fragment_404_for_sender_outside_group(seeded, tmp_path, monkeypatch):
+    # Create a second group + sender that does NOT belong to seeded's group
+    _, group_id, _ = seeded
+    conn = connect(tmp_path / "inboxcleaner.db")
+    other_group = repo.create_group(conn, name="Other", created_by="auto")
+    other_sender = repo.upsert_sender(
+        conn,
+        Sender(email="x@other.com", display_name="Other",
+               domain="other.com", group_id=other_group.id),
+    )
+    conn.close()
+    client = TestClient(app)
+    # Asking for other_sender in seeded's group should 404.
+    resp = client.get(f"/recent?group_id={group_id}&sender_id={other_sender.id}")
+    assert resp.status_code == 404
+
+
+def test_group_detail_marks_sender_rows_clickable(seeded):
+    _, group_id, _ = seeded
+    client = TestClient(app)
+    resp = client.get(f"/groups/{group_id}")
+    assert resp.status_code == 200
+    # Sender rows have hx-get pointing at /recent
+    assert "hx-get=\"/recent?group_id=" in resp.text
+    assert "sender-row" in resp.text

@@ -36,11 +36,14 @@
 <div class="two-col">
   <section>
     <h2>Senders <small>({{ senders | length }})</small></h2>
+    <p class="hint"><small>Click a row to filter recent messages</small></p>
     <table class="senders-table">
       <thead><tr><th>Email</th><th>Display name</th><th class="col-num">Messages</th></tr></thead>
       <tbody>
         {% for s in senders %}
-        <tr>
+        <tr class="sender-row"
+            hx-get="/recent?group_id={{ group.id }}&sender_id={{ s.id }}"
+            hx-target="#recent-pane">
           <td class="email">{{ s.email }}</td>
           <td>{{ s.display_name or "—" }}</td>
           <td class="col-num">{{ sender_counts[s.id] }}</td>
@@ -51,19 +54,7 @@
   </section>
 
   <section>
-    <h2>Recent messages</h2>
-    {% if recent %}
-    <ul class="recent-list">
-      {% for r in recent %}
-        <li>
-          <time>{{ r["internal_date"] | human_date }}</time>
-          <span class="subject">{{ r["subject"] or "(no subject)" }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No messages.</p>
-    {% endif %}
+    {% include "_recent_pane.html" %}
   </section>
 </div>
 {% endblock %}

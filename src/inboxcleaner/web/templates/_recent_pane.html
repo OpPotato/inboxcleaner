@@ -1,0 +1,23 @@
+<div id="recent-pane">
+  <h2>
+    Recent messages
+    {% if selected_sender %}
+      <small>from <code>{{ selected_sender.email }}</code></small>
+      <button class="secondary"
+              hx-get="/recent?group_id={{ group_id }}"
+              hx-target="#recent-pane">Show all</button>
+    {% endif %}
+  </h2>
+  {% if recent %}
+  <ul class="recent-list">
+    {% for r in recent %}
+      <li>
+        <time>{{ r["internal_date"] | human_date }}</time>
+        <span class="subject">{{ r["subject"] or "(no subject)" }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No messages.</p>
+  {% endif %}
+</div>

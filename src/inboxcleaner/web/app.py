@@ -151,10 +151,68 @@ def create_app() -> FastAPI:
                     "msg_count": msg_count,
                     "unsub_count": unsub_count,
                     "recent": recent,
+                    "selected_sender": None,
                 },
             )
         finally:
             conn.close()
+
+    @app.get("/recent", response_class=HTMLResponse)
+    def recent_fragment(
+        request: Request, group_id: int, sender_id: int | None = None
+    ) -> HTMLResponse:
+        """Return the recent-messages pane fragment.
+
+        Filters by sender_id when provided; otherwise shows all messages
+        across the group. Always rendered as the partial so HTMX can
+        swap it into #recent-pane.
+        """
+        conn = _open_db()
+        try:
+            if repo.get_group(conn, group_id) is None:
+                raise HTTPException(status_code=404, detail=f"No group with id {group_id}")
+            selected_sender = None
+            if sender_id is not None:
+                row = conn.execute(
+                    "SELECT * FROM sender WHERE id = ?", (sender_id,)
+                ).fetchone()
+                if row is None or row["group_id"] != group_id:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"No sender with id {sender_id} in group {group_id}",
+                    )
+                from inboxcleaner.core.models import Sender
+
+                selected_sender = Sender(**dict(row))
+                recent = conn.execute(
+                    """
+                    SELECT id, subject, internal_date FROM message
+                    WHERE sender_id = ? AND is_trashed = 0
+                    ORDER BY internal_date DESC LIMIT 10
+                    """,
+                    (sender_id,),
+                ).fetchall()
+            else:
+                recent = conn.execute(
+                    """
+                    SELECT id, subject, internal_date FROM message
+                    WHERE sender_id IN (SELECT id FROM sender WHERE group_id = ?)
+                      AND is_trashed = 0
+                    ORDER BY internal_date DESC LIMIT 10
+                    """,
+                    (group_id,),
+                ).fetchall()
+        finally:
+            conn.close()
+        return TEMPLATES.TemplateResponse(
+            request,
+            "_recent_pane.html",
+            {
+                "group_id": group_id,
+                "recent": recent,
+                "selected_sender": selected_sender,
+            },
+        )
 
     @app.post("/actions/preview", response_class=HTMLResponse)
     def actions_preview(request: Request, body: _ActionRequest) -> HTMLResponse:

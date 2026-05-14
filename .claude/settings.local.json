@@ -1,0 +1,6 @@
+{
+  "skillOverrides": {
+    "agent-team-driven-development": "off",
+    "dispatch-plans": "off"
+  }
+}

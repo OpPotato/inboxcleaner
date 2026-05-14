@@ -133,6 +133,11 @@ class InboxCleanerApp(App):
     _sort_column: str | None = None
     _sort_direction: str | None = None  # "desc" | "asc" | None
 
+    # When True, RowHighlighted events on #senders are ignored (used while
+    # the senders table is being repopulated to avoid auto-filtering before
+    # the user actually navigates).
+    _loading_senders: bool = False
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(id="groups", cursor_type="row")
@@ -173,7 +178,13 @@ class InboxCleanerApp(App):
 
     def _load_groups(self) -> None:
         groups = self.query_one("#groups", DataTable)
+        # Preserve cursor column AND horizontal scroll so that clicking a
+        # column header while scrolled right doesn't jump back to column 0.
         prev_gid = self._selected_group_id() if groups.row_count > 0 else None
+        prev_cursor_col = (
+            groups.cursor_coordinate.column if groups.row_count > 0 else 0
+        )
+        prev_scroll_x = groups.scroll_x
         groups.clear()  # rows only; columns persist
 
         conn = _open_db()
@@ -205,7 +216,10 @@ class InboxCleanerApp(App):
                     if key.value == str(prev_gid):
                         target_row = i
                         break
-            groups.move_cursor(row=target_row)
+            groups.move_cursor(row=target_row, column=prev_cursor_col)
+            # move_cursor scrolls the cursor cell into view, which can reset
+            # scroll_x back to 0. Restore it explicitly.
+            groups.scroll_x = prev_scroll_x
             gid = self._selected_group_id()
             if gid is not None:
                 self._load_detail_for(gid)
@@ -245,42 +259,101 @@ class InboxCleanerApp(App):
         return int(row_key.value) if row_key.value else None
 
     def _load_detail_for(self, group_id: int) -> None:
+        """Populate senders + recent for a group.
+
+        Adds an '*All*' pseudo-row at the top of the senders table. The user
+        can navigate down to a specific sender to filter the recent pane
+        (handled in on_data_table_row_highlighted).
+        """
         senders_table = self.query_one("#senders", DataTable)
-        recent_table = self.query_one("#recent", DataTable)
         senders_table.clear()
-        recent_table.clear()
         conn = _open_db()
         try:
             senders = repo.senders_for_group(conn, group_id)
+            total = conn.execute(
+                "SELECT COUNT(*) AS n FROM message WHERE sender_id IN "
+                "(SELECT id FROM sender WHERE group_id = ?) AND is_trashed = 0",
+                (group_id,),
+            ).fetchone()["n"]
+            self._loading_senders = True
+            senders_table.add_row("* All senders *", "", str(total), key="all")
             for s in senders:
                 count = conn.execute(
                     "SELECT COUNT(*) AS n FROM message WHERE sender_id = ? AND is_trashed = 0",
                     (s.id,),
                 ).fetchone()["n"]
-                senders_table.add_row(s.email, s.display_name or "", str(count))
-            rows = conn.execute(
-                """
-                SELECT subject, internal_date FROM message
-                WHERE sender_id IN (SELECT id FROM sender WHERE group_id = ?)
-                  AND is_trashed = 0
-                ORDER BY internal_date DESC LIMIT 5
-                """,
-                (group_id,),
-            ).fetchall()
-            for r in rows:
-                date_str = datetime.fromtimestamp(r["internal_date"] / 1000).strftime("%Y-%m-%d")
-                recent_table.add_row(date_str, r["subject"] or "(no subject)")
+                senders_table.add_row(
+                    s.email, s.display_name or "", str(count), key=str(s.id)
+                )
+            senders_table.move_cursor(row=0)
+            self._loading_senders = False
         finally:
             conn.close()
+        self._load_recent_for(group_id, sender_id=None)
+
+    def _load_recent_for(
+        self, group_id: int, sender_id: int | None = None
+    ) -> None:
+        recent_table = self.query_one("#recent", DataTable)
+        recent_table.clear()
+        conn = _open_db()
+        try:
+            if sender_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT subject, internal_date FROM message
+                    WHERE sender_id IN (SELECT id FROM sender WHERE group_id = ?)
+                      AND is_trashed = 0
+                    ORDER BY internal_date DESC LIMIT 5
+                    """,
+                    (group_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT subject, internal_date FROM message
+                    WHERE sender_id = ? AND is_trashed = 0
+                    ORDER BY internal_date DESC LIMIT 5
+                    """,
+                    (sender_id,),
+                ).fetchall()
+        finally:
+            conn.close()
+        for r in rows:
+            recent_table.add_row(
+                _human_date(r["internal_date"]),
+                r["subject"] or "(no subject)",
+            )
 
     def on_data_table_row_highlighted(
         self, event: DataTable.RowHighlighted
     ) -> None:
-        if event.data_table.id != "groups":
-            return
-        gid = self._selected_group_id()
-        if gid is not None:
-            self._load_detail_for(gid)
+        tid = event.data_table.id
+        if tid == "groups":
+            gid = self._selected_group_id()
+            if gid is not None:
+                self._load_detail_for(gid)
+        elif tid == "senders":
+            # Suppress the auto-fired event during senders repopulation.
+            if self._loading_senders:
+                return
+            gid = self._selected_group_id()
+            if gid is None:
+                return
+            try:
+                row_key = event.data_table.coordinate_to_cell_key(
+                    event.data_table.cursor_coordinate
+                ).row_key
+            except (KeyError, IndexError, ValueError):
+                return
+            key_value = row_key.value if row_key else None
+            if key_value is None or key_value == "all":
+                self._load_recent_for(gid, sender_id=None)
+            else:
+                try:
+                    self._load_recent_for(gid, sender_id=int(key_value))
+                except ValueError:
+                    self._load_recent_for(gid, sender_id=None)
 
     def action_act(self, action_name: str) -> None:
         gid = self._selected_group_id()

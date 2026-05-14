@@ -74,11 +74,33 @@ async def test_selecting_group_populates_senders_and_recent(seeded):
     app = InboxCleanerApp()
     async with app.run_test() as pilot:
         await pilot.pause()
-        # First row is auto-selected after load; senders + recent populated.
+        # senders has 1 real sender + 1 "* All senders *" pseudo-row at top.
         senders = app.query_one("#senders")
         recent = app.query_one("#recent")
-        assert senders.row_count == 1
+        assert senders.row_count == 2
+        # First row is "All", recent shows the 1 message from the group.
         assert recent.row_count == 1
+
+
+async def test_selecting_sender_filters_recent(seeded_multi):
+    _, _alpha_id, _bravo_id = seeded_multi
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        senders = app.query_one("#senders")
+        recent = app.query_one("#recent")
+        # Default group (Bravo, 3 msgs). Senders pane: "* All *" + 1 real sender.
+        assert senders.row_count == 2
+        assert recent.row_count == 3
+        # Move cursor to the real sender row. RowHighlighted fires; recent
+        # filters to that sender (still 3, since group has 1 sender).
+        senders.move_cursor(row=1)
+        await pilot.pause()
+        assert recent.row_count == 3
+        # Move back to "* All *" — recent reverts to group-wide.
+        senders.move_cursor(row=0)
+        await pilot.pause()
+        assert recent.row_count == 3
 
 
 async def test_pressing_t_opens_trash_modal(seeded):
