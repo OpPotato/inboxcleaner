@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from inboxcleaner.core import repo
+from inboxcleaner.core import repo, sync_state
 from inboxcleaner.core.db import connect
+from inboxcleaner.core.gmail import GmailMessageMetadata
 from inboxcleaner.core.models import Account, Message, Sender
 from inboxcleaner.web import app as web_app_module
 from inboxcleaner.web.app import app
@@ -219,3 +220,88 @@ def test_group_detail_marks_sender_rows_clickable(seeded):
     # Sender rows have hx-get pointing at /recent
     assert "hx-get=\"/recent?group_id=" in resp.text
     assert "sender-row" in resp.text
+
+
+def _make_meta(mid: str, from_: str, internal: int) -> GmailMessageMetadata:
+    return GmailMessageMetadata(
+        id=mid, threadId=f"t{mid}",
+        internalDate=str(internal), sizeEstimate=4096,
+        labelIds=["CATEGORY_PROMOTIONS"],
+        payload={"headers": [
+            {"name": "From", "value": from_},
+            {"name": "Subject", "value": f"subj-{mid}"},
+        ]},
+    )
+
+
+@pytest.fixture(autouse=True)
+def _reset_sync_state():
+    sync_state.reset()
+    yield
+    sync_state.reset()
+
+
+def test_sync_status_idle_shows_button(seeded):
+    client = TestClient(app)
+    resp = client.get("/sync/status")
+    assert resp.status_code == 200
+    assert "Sync now" in resp.text
+    assert "Syncing" not in resp.text
+
+
+def test_post_sync_kicks_off_and_returns_status_fragment(seeded, monkeypatch):
+    fake = FakeGmailClient(
+        email="me@example.com",
+        history_id="100",
+        messages={"m1": _make_meta("m1", "Uniqlo <a@uniqlo.com>", 1_700_000_000_000)},
+        query_ids={
+            "category:promotions OR category:social OR category:updates": ["m1"]
+        },
+    )
+    monkeypatch.setattr(web_app_module, "_get_client", lambda: fake)
+    client = TestClient(app)
+    resp = client.post("/sync")
+    assert resp.status_code == 200
+    # Returned fragment is the sync-status div, either in-progress or idle
+    # depending on how fast the background task drained.
+    assert "sync-status" in resp.text
+
+
+def test_post_sync_runs_with_fake_client_to_completion(seeded, monkeypatch):
+    fake = FakeGmailClient(
+        email="me@example.com",
+        history_id="200",
+        messages={
+            "m1": _make_meta("m1", "Uniqlo <a@uniqlo.com>", 1_700_000_000_000),
+            "m2": _make_meta("m2", "Patagonia <hi@patagonia.com>", 1_700_000_000_001),
+        },
+        query_ids={
+            "category:promotions OR category:social OR category:updates": ["m1", "m2"]
+        },
+    )
+    monkeypatch.setattr(web_app_module, "_get_client", lambda: fake)
+
+    import asyncio
+
+    async def run():
+        # Skip the create_task path; await directly so the test is deterministic.
+        return await sync_state.run_sync(lambda: fake)
+
+    result = asyncio.run(run())
+    assert result.error is None
+    assert result.last_message_count >= 1
+    assert sync_state.status().last_history_id == "200"
+
+
+def test_get_sync_status_during_in_progress_returns_running_fragment(monkeypatch):
+    # Manually set the status to simulate an in-progress sync.
+    sync_state.reset()
+    sync_state.status().in_progress = True
+    sync_state.status().done = 50
+    sync_state.status().total = 100
+    client = TestClient(app)
+    resp = client.get("/sync/status")
+    assert resp.status_code == 200
+    assert "Syncing" in resp.text
+    assert "50" in resp.text
+    assert "100" in resp.text

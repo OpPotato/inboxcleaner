@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from inboxcleaner.core import actions, repo
+from inboxcleaner.core import actions, repo, sync_state
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.gmail import GmailClient, RealGmailClient
@@ -156,6 +156,23 @@ def create_app() -> FastAPI:
             )
         finally:
             conn.close()
+
+    @app.post("/sync", response_class=HTMLResponse)
+    async def trigger_sync(request: Request) -> HTMLResponse:
+        """Kick off a sync in the background (if none running) and return
+        the current status fragment. Async so `asyncio.create_task` has a
+        running event loop to schedule into.
+        """
+        sync_state.trigger_sync_in_background(_get_client)
+        return TEMPLATES.TemplateResponse(
+            request, "_sync_status.html", {"status": sync_state.status()}
+        )
+
+    @app.get("/sync/status", response_class=HTMLResponse)
+    async def sync_status(request: Request) -> HTMLResponse:
+        return TEMPLATES.TemplateResponse(
+            request, "_sync_status.html", {"status": sync_state.status()}
+        )
 
     @app.get("/recent", response_class=HTMLResponse)
     def recent_fragment(

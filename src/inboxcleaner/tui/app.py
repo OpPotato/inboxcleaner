@@ -13,7 +13,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Label
 
-from inboxcleaner.core import actions, repo
+from inboxcleaner.core import actions, repo, sync_state
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.gmail import GmailClient, RealGmailClient
@@ -123,6 +123,8 @@ class InboxCleanerApp(App):
     BINDINGS: ClassVar[list] = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
+        ("s", "sync", "Sync"),
+        ("escape", "clear_selection", "Clear"),
         ("a", "act('archive')", "Archive"),
         ("t", "act('trash')", "Trash"),
         ("l", "act('label')", "Label"),
@@ -411,6 +413,24 @@ class InboxCleanerApp(App):
         )
 
     def action_refresh(self) -> None:
+        self._load_groups()
+
+    def action_clear_selection(self) -> None:
+        """Empty the right panes. The next arrow / click in #groups will
+        repopulate them via the normal RowHighlighted flow."""
+        self.query_one("#senders", DataTable).clear()
+        self.query_one("#recent", DataTable).clear()
+
+    async def action_sync(self) -> None:
+        if sync_state.status().in_progress:
+            self.notify("Sync already in progress.", severity="warning")
+            return
+        self.notify("Syncing — this may take a few minutes for a heavy inbox.")
+        result = await sync_state.run_sync(_get_client)
+        if result.error:
+            self.notify(f"Sync failed: {result.error}", severity="error")
+        else:
+            self.notify(f"Synced {result.last_message_count} messages.")
         self._load_groups()
 
 

@@ -1,6 +1,6 @@
 import pytest
 
-from inboxcleaner.core import repo
+from inboxcleaner.core import repo, sync_state
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.models import Account, Message, Sender
 from inboxcleaner.tui import app as tui_app_module
@@ -243,3 +243,62 @@ def _fake_header_event(table, column_key: str):
     evt.column_index = 0
     evt.label = None
     return evt
+
+
+@pytest.fixture(autouse=True)
+def _reset_sync_state():
+    sync_state.reset()
+    yield
+    sync_state.reset()
+
+
+async def test_escape_clears_right_panes(seeded):
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        senders = app.query_one("#senders")
+        recent = app.query_one("#recent")
+        # Sanity: panes populated after load.
+        assert senders.row_count > 0
+        assert recent.row_count > 0
+        await pilot.press("escape")
+        await pilot.pause()
+        assert senders.row_count == 0
+        assert recent.row_count == 0
+
+
+async def test_pressing_s_invokes_sync_via_client_factory(seeded, monkeypatch):
+    from inboxcleaner.core.gmail import GmailMessageMetadata
+
+    fake = FakeGmailClient(
+        email="me@example.com",
+        history_id="999",
+        messages={
+            "m1": GmailMessageMetadata(
+                id="m1", threadId="t1",
+                internalDate="1700000000000", sizeEstimate=4096,
+                labelIds=["CATEGORY_PROMOTIONS"],
+                payload={"headers": [
+                    {"name": "From", "value": "Uniqlo <a@uniqlo.com>"},
+                    {"name": "Subject", "value": "Sale"},
+                ]},
+            )
+        },
+        query_ids={
+            "category:promotions OR category:social OR category:updates": ["m1"]
+        },
+    )
+    # Patch the module-level factory used by sync_state via tui.app._get_client.
+    monkeypatch.setattr(tui_app_module, "_get_client", lambda: fake)
+
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("s")
+        # action_sync is async; pause until it has had a chance to finish.
+        for _ in range(20):
+            await pilot.pause()
+            if not sync_state.status().in_progress and sync_state.status().last_history_id:
+                break
+        assert sync_state.status().last_history_id == "999"
+        assert sync_state.status().error is None

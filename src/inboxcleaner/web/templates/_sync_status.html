@@ -1,0 +1,20 @@
+{% if status.in_progress %}
+<div id="sync-status" class="sync-row sync-running"
+     hx-get="/sync/status" hx-trigger="every 1s" hx-swap="outerHTML">
+  <span class="sync-spinner"></span>
+  <span><strong>Syncing…</strong>
+    {{ status.done }}{% if status.total %} / {{ status.total }}{% endif %} messages</span>
+</div>
+{% else %}
+<div id="sync-status" class="sync-row">
+  <button hx-post="/sync" hx-target="#sync-status" hx-swap="outerHTML">Sync now</button>
+  {% if status.error %}
+    <span class="sync-error">Last sync failed: <code>{{ status.error }}</code></span>
+  {% elif status.last_message_count is not none %}
+    <span class="sync-done">
+      Last sync applied <strong>{{ status.last_message_count }}</strong> messages.
+      <a href="/">Reload</a> to see updated counts.
+    </span>
+  {% endif %}
+</div>
+{% endif %}
