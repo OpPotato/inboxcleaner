@@ -236,3 +236,53 @@ def test_install_client_secret_rejects_missing_required_fields(tmp_path):
         _install_client_secret(src, dest)
     assert "missing" in str(exc_info.value.message).lower()
     assert not dest.exists()
+
+
+def test_setup_installs_secret_and_skips_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    # Stub click.launch so it doesn't open real browser windows during tests.
+    monkeypatch.setattr("click.launch", lambda *a, **kw: 0)
+
+    downloaded = tmp_path / "downloaded.json"
+    downloaded.write_text(json_mod.dumps(_valid_desktop_secret()))
+
+    # 4 ENTERs for the pauses, then path, then "n" to skip the auto-login.
+    inputs = "\n\n\n\n" + str(downloaded) + "\nn\n"
+    result = CliRunner().invoke(cli, ["setup"], input=inputs)
+    assert result.exit_code == 0, result.output
+    target = tmp_path / "client_secret.json"
+    assert target.exists()
+    mode = target.stat().st_mode & 0o777
+    assert mode == 0o600
+    # All 4 Cloud Console URLs should have been mentioned in the output.
+    assert "console.cloud.google.com/projectcreate" in result.output
+    assert "gmail.googleapis.com" in result.output
+    assert "credentials/consent" in result.output
+    # Final URL is plain credentials page.
+    assert "console.cloud.google.com/apis/credentials" in result.output
+
+
+def test_setup_aborts_if_secret_exists_and_user_says_no(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    monkeypatch.setattr("click.launch", lambda *a, **kw: 0)
+    existing = tmp_path / "client_secret.json"
+    existing.write_text("{}")
+    original = existing.read_text()
+    # Reply "n" to the overwrite prompt.
+    result = CliRunner().invoke(cli, ["setup"], input="n\n")
+    assert result.exit_code == 0
+    # Existing file untouched.
+    assert existing.read_text() == original
+    assert "aborted" in result.output.lower() or "existing" in result.output.lower()
+
+
+def test_setup_rejects_invalid_downloaded_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    monkeypatch.setattr("click.launch", lambda *a, **kw: 0)
+    bad = tmp_path / "bad.json"
+    bad.write_text("not json")
+    inputs = "\n\n\n\n" + str(bad) + "\n"
+    result = CliRunner().invoke(cli, ["setup"], input=inputs)
+    assert result.exit_code != 0
+    target = tmp_path / "client_secret.json"
+    assert not target.exists()

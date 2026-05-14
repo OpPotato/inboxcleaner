@@ -69,6 +69,85 @@ def cli() -> None:
 
 
 @cli.command()
+def setup() -> None:
+    """One-time guided onboarding: walks through Google Cloud Console setup."""
+    paths = Paths.default()
+    paths.ensure_dirs()
+    target = paths.token.parent / "client_secret.json"
+
+    if target.exists() and not click.confirm(
+        f"Found existing {target}. Overwrite?", default=False
+    ):
+        click.echo(
+            "Setup aborted. Run `inboxcleaner login` to use the existing credentials."
+        )
+        return
+
+    click.echo("inboxcleaner needs a one-time Google Cloud setup (~5 minutes).")
+    click.echo(
+        "You create your own Google Cloud project — no shared developer credentials."
+    )
+    click.echo("")
+
+    # Step 1: Create project
+    click.echo("[1/4] Create a Google Cloud project")
+    url = "https://console.cloud.google.com/projectcreate"
+    click.echo(f"  Open: {url}")
+    click.echo("  - Name it something like 'inboxcleaner-yourname'.")
+    click.echo("  - Click Create and wait ~30 seconds for provisioning.")
+    click.launch(url)
+    click.pause(info="\n  Press ENTER when the project is created...")
+
+    # Step 2: Enable Gmail API
+    click.echo("\n[2/4] Enable the Gmail API")
+    url = "https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+    click.echo(f"  Open: {url}")
+    click.echo("  - Make sure your new project is selected in the top bar.")
+    click.echo("  - Click Enable.")
+    click.launch(url)
+    click.pause(info="\n  Press ENTER when the Gmail API is enabled...")
+
+    # Step 3: Configure consent screen
+    click.echo("\n[3/4] Configure the OAuth consent screen")
+    url = "https://console.cloud.google.com/apis/credentials/consent"
+    click.echo(f"  Open: {url}")
+    click.echo("  - User Type: External  -> Create")
+    click.echo("  - App name: inboxcleaner")
+    click.echo("  - User support email + Developer contact email: your email")
+    click.echo("  - Save and Continue")
+    click.echo("  - Scopes -> Add or Remove Scopes -> search 'gmail.modify' ->")
+    click.echo("    check it -> Update -> Save and Continue")
+    click.echo("  - Test users -> Add Users -> enter your email -> Add -> Save and Continue")
+    click.echo("  - Back to Dashboard")
+    click.launch(url)
+    click.pause(info="\n  Press ENTER when the consent screen is configured...")
+
+    # Step 4: Create OAuth client and download
+    click.echo("\n[4/4] Create OAuth client credentials")
+    url = "https://console.cloud.google.com/apis/credentials"
+    click.echo(f"  Open: {url}")
+    click.echo("  - Click Create Credentials -> OAuth client ID")
+    click.echo("  - Application type: Desktop app")
+    click.echo("  - Name: inboxcleaner-cli")
+    click.echo("  - Click Create, then in the popup click Download JSON.")
+    click.launch(url)
+    click.pause(info="\n  Press ENTER when you've downloaded the JSON file...")
+
+    src = click.prompt(
+        "\n  Path to the downloaded JSON file",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    )
+    _install_client_secret(Path(src), target)
+    click.echo(f"\nCredentials installed at {target} (0600).")
+
+    if click.confirm("\nRun `inboxcleaner login` now to complete OAuth?", default=True):
+        ctx = click.get_current_context()
+        ctx.invoke(login)
+    else:
+        click.echo("Run `inboxcleaner login` when ready.")
+
+
+@cli.command()
 @click.option(
     "--client-secret",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
