@@ -65,3 +65,15 @@ async def test_groups_loaded_into_left_pane(seeded):
         # Group id used as the row key
         row_keys = [str(k.value) for k in groups.rows.keys()]  # noqa: SIM118
         assert str(group_id) in row_keys
+
+
+async def test_selecting_group_populates_senders_and_recent(seeded):
+    _, _group_id, _ = seeded
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # First row is auto-selected after load; senders + recent populated.
+        senders = app.query_one("#senders")
+        recent = app.query_one("#recent")
+        assert senders.row_count == 1
+        assert recent.row_count == 1
