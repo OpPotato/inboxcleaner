@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>inboxcleaner</h1>
+{% if account %}
+  <p><strong>Account:</strong> {{ account.email }}</p>
+  <p><strong>Last sync:</strong> {{ last_sync or "never" }}</p>
+  <p><strong>Cache:</strong> {{ message_count }} messages across {{ group_count }} groups.</p>
+  <p><a href="/groups" role="button">Browse groups →</a></p>
+{% else %}
+  <p>No synced account found.</p>
+  <p>Run <code>inboxcleaner setup</code> then <code>inboxcleaner sync</code> in the terminal first.</p>
+{% endif %}
+<p><small>Sync from the terminal: <code>inboxcleaner sync</code></small></p>
+{% endblock %}

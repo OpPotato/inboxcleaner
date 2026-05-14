@@ -410,6 +410,26 @@ def regroup() -> None:
         conn.close()
 
 
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Host interface to bind. Default is loopback only.")
+@click.option("--port", type=int, default=8765, show_default=True)
+@click.option("--no-browser", is_flag=True, help="Don't open the browser.")
+def web(host: str, port: int, no_browser: bool) -> None:
+    """Start the local web UI."""
+    import webbrowser
+
+    import uvicorn
+
+    from inboxcleaner.web.app import app
+
+    url = f"http://{host}:{port}/"
+    click.echo(f"Starting inboxcleaner web on {url}")
+    if not no_browser:
+        webbrowser.open(url)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 # Register CLI action subcommands (archive, trash, label, unsubscribe).
 # Import is at the bottom to avoid circular imports — actions.py needs `cli`
 # from this module.
