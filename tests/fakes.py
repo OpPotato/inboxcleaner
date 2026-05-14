@@ -70,7 +70,7 @@ class FakeGmailClient:
             self.messages[mid] = {**self.messages[mid], "labelIds": list(labels)}
 
     async def get_or_create_label(self, name: str) -> str:
-        self._log("get_or_create_label", name=name)
+        self._log("get_or_create_label", label_name=name)
         if name not in self.labels:
             self.labels[name] = f"Label_{self.next_label_id}"
             self.next_label_id += 1
