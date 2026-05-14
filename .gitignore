@@ -27,3 +27,6 @@ dist/
 
 # Claude Code per-project settings
 .claude/
+
+# Internal planning/specs (kept locally, not published)
+docs/superpowers/
