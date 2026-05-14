@@ -167,8 +167,7 @@ def login(client_secret: Path | None) -> None:
     if not client_secret.exists():
         raise click.ClickException(
             f"OAuth client secret not found at {client_secret}.\n"
-            "Get one from https://console.cloud.google.com/apis/credentials "
-            "(OAuth client ID, Desktop application), then place the JSON there."
+            "Run `inboxcleaner setup` for a guided walkthrough."
         )
     _load_creds_or_die(client_secret, paths.token)
     click.echo(f"Authenticated. Token cached at {paths.token}.")

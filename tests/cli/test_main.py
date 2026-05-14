@@ -28,6 +28,7 @@ def test_login_errors_when_client_secret_missing(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli, ["login"])
     assert result.exit_code != 0
     assert "client_secret.json" in result.output
+    assert "inboxcleaner setup" in result.output
 
 
 def test_sync_help():
