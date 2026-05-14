@@ -1,10 +1,14 @@
+import asyncio
 from pathlib import Path
 
 import click
+from rich.progress import Progress
 
 from inboxcleaner.core.config import Paths
-from inboxcleaner.core.gmail import load_or_run_oauth
+from inboxcleaner.core.db import connect
+from inboxcleaner.core.gmail import RealGmailClient, load_or_run_oauth
 from inboxcleaner.core.logging_setup import configure_logging
+from inboxcleaner.core.sync import DEFAULT_QUERY, incremental_sync, initial_sync
 
 
 @click.group()
@@ -39,9 +43,46 @@ def login(client_secret: Path | None) -> None:
 
 
 @cli.command()
-def sync() -> None:
+@click.option("--query", default=DEFAULT_QUERY, help="Gmail search query for initial sync.")
+def sync(query: str) -> None:
     """Sync mail metadata into the local cache."""
-    click.echo("sync: not yet implemented (Task 15)")
+    asyncio.run(_run_sync(query))
+
+
+async def _run_sync(query: str) -> None:
+    paths = Paths.default()
+    paths.ensure_dirs()
+    if not paths.token.exists():
+        raise click.ClickException("Not logged in. Run `inboxcleaner login` first.")
+    secret = paths.token.parent / "client_secret.json"
+    creds = load_or_run_oauth(secret, paths.token)
+    client = RealGmailClient(creds)
+    conn = connect(paths.db)
+    try:
+        profile = await client.get_profile()
+        email = profile["emailAddress"]
+        row = conn.execute(
+            "SELECT id, history_id FROM account WHERE email = ?", (email,)
+        ).fetchone()
+        with Progress() as progress_ui:
+            task = progress_ui.add_task("Syncing", total=None)
+
+            def on_progress(done: int, total: int) -> None:
+                if progress_ui.tasks[0].total != total:
+                    progress_ui.update(task, total=total)
+                progress_ui.update(task, completed=done)
+
+            if row is None or row["history_id"] is None:
+                result = await initial_sync(
+                    client, conn, account_email=email, query=query, progress=on_progress
+                )
+            else:
+                result = await incremental_sync(
+                    client, conn, account_id=row["id"], progress=on_progress
+                )
+        click.echo(f"Synced {result.message_count} messages. history_id={result.history_id}")
+    finally:
+        conn.close()
 
 
 @cli.command()
