@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from inboxcleaner.core import repo
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
 
@@ -46,6 +47,49 @@ def create_app() -> FastAPI:
                     "message_count": message_count,
                     "group_count": group_count,
                 },
+            )
+        finally:
+            conn.close()
+
+    @app.get("/groups", response_class=HTMLResponse)
+    def groups(
+        request: Request,
+        sort: str = "count",
+        limit: int = 200,
+        category: str = "all",
+    ) -> HTMLResponse:
+        conn = _open_db()
+        try:
+            summaries = repo.groups_with_counts(conn)
+            if category != "all":
+                keep_ids = {
+                    r["group_id"]
+                    for r in conn.execute(
+                        """
+                        SELECT DISTINCT s.group_id FROM sender s
+                        JOIN message m ON m.sender_id = s.id
+                        WHERE m.category = ?
+                        """,
+                        (category,),
+                    ).fetchall()
+                    if r["group_id"] is not None
+                }
+                summaries = [s for s in summaries if s.id in keep_ids]
+            if sort == "size":
+                summaries.sort(key=lambda x: x.total_size, reverse=True)
+            elif sort == "date":
+                summaries.sort(key=lambda x: x.latest_message_date or 0, reverse=True)
+            summaries = summaries[:limit]
+
+            template = (
+                "_groups_table.html"
+                if request.headers.get("HX-Request") == "true"
+                else "groups.html"
+            )
+            return TEMPLATES.TemplateResponse(
+                request,
+                template,
+                {"summaries": summaries, "sort": sort, "category": category},
             )
         finally:
             conn.close()

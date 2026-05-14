@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Groups · inboxcleaner{% endblock %}
+{% block content %}
+<h1>Sender groups</h1>
+<form class="toolbar"
+      hx-get="/groups"
+      hx-target="#groups-table"
+      hx-trigger="change from:#category-select, click from:.sort-link"
+      hx-include="this">
+  <label for="category-select">Category</label>
+  <select id="category-select" name="category">
+    {% for opt in ["all", "promotions", "social", "updates"] %}
+      <option value="{{ opt }}" {% if opt == category %}selected{% endif %}>{{ opt }}</option>
+    {% endfor %}
+  </select>
+  <input type="hidden" name="sort" value="{{ sort }}">
+</form>
+<div id="groups-table">
+  {% include "_groups_table.html" %}
+</div>
+{% endblock %}

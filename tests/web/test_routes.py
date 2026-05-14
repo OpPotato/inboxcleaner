@@ -55,3 +55,31 @@ def test_index_handles_empty_db(tmp_path, monkeypatch):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "No synced account" in resp.text
+
+
+def test_groups_page_full_render(seeded):
+    client = TestClient(app)
+    resp = client.get("/groups")
+    assert resp.status_code == 200
+    assert "Uniqlo" in resp.text
+    # Has table headers
+    assert "Messages" in resp.text
+
+
+def test_groups_table_partial_via_htmx(seeded):
+    client = TestClient(app)
+    resp = client.get("/groups?sort=size", headers={"HX-Request": "true"})
+    assert resp.status_code == 200
+    assert "Uniqlo" in resp.text
+    # Partial response does NOT include the page chrome (no <html>).
+    assert "<html" not in resp.text
+
+
+def test_groups_category_filter_drops_non_matching(seeded):
+    client = TestClient(app)
+    # Filter to promotions (matches) — group should appear.
+    resp = client.get("/groups?category=promotions")
+    assert "Uniqlo" in resp.text
+    # Filter to social (no matching messages) — group should NOT appear.
+    resp = client.get("/groups?category=social")
+    assert "Uniqlo" not in resp.text
