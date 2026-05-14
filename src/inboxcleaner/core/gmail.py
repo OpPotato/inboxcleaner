@@ -228,8 +228,12 @@ class RealGmailClient:
         return created["id"]
 
     async def send_unsubscribe_mailto(self, to: str, subject: str | None) -> None:
-        # v1 stub — see Task 12. Sending mail requires gmail.send scope.
-        raise NotImplementedError("mailto unsubscribe deferred to Task 12")
+        # v1: requires gmail.send scope which we don't request by default.
+        # Surface to caller; actions.unsubscribe will record it as 'skipped'.
+        raise NotImplementedError(
+            "mailto unsubscribe disabled (requires gmail.send scope; re-run "
+            "`inboxcleaner login --include-send` in a future version)"
+        )
 
 
 def _history_type(api_key: str) -> str:
