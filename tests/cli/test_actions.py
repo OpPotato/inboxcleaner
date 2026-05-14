@@ -41,7 +41,7 @@ def seeded_home(tmp_path, monkeypatch):
 
 
 def test_archive_dry_run_prints_preview_and_skips_gmail(seeded_home, monkeypatch):
-    tmp_path, group_id, _ = seeded_home
+    _tmp_path, group_id, _ = seeded_home
 
     def boom():
         raise AssertionError("--dry-run must not contact Gmail")
@@ -55,7 +55,7 @@ def test_archive_dry_run_prints_preview_and_skips_gmail(seeded_home, monkeypatch
 
 
 def test_archive_yes_invokes_gmail(seeded_home, monkeypatch):
-    tmp_path, group_id, _ = seeded_home
+    _tmp_path, group_id, _ = seeded_home
     fake = FakeGmailClient()
     monkeypatch.setattr(cli_actions, "_get_client", lambda: fake)
     result = CliRunner().invoke(cli, ["archive", "--group", str(group_id), "--yes"])
@@ -66,7 +66,7 @@ def test_archive_yes_invokes_gmail(seeded_home, monkeypatch):
 
 
 def test_archive_prompt_n_aborts(seeded_home, monkeypatch):
-    tmp_path, group_id, _ = seeded_home
+    _tmp_path, group_id, _ = seeded_home
     fake = FakeGmailClient()
     monkeypatch.setattr(cli_actions, "_get_client", lambda: fake)
     result = CliRunner().invoke(cli, ["archive", "--group", str(group_id)], input="n\n")
