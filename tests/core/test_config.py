@@ -1,5 +1,3 @@
-import os
-from pathlib import Path
 from inboxcleaner.core.config import Paths
 
 
@@ -12,6 +10,7 @@ def test_default_paths_match_xdg(monkeypatch, tmp_path):
     assert p.token == tmp_path / "cfg" / "inboxcleaner" / "token.json"
     assert p.db == tmp_path / "data" / "inboxcleaner" / "inboxcleaner.db"
     assert p.log == tmp_path / "state" / "inboxcleaner" / "inboxcleaner.log"
+    assert p.config_file == tmp_path / "cfg" / "inboxcleaner" / "config.toml"
 
 
 def test_override_via_env(monkeypatch, tmp_path):
@@ -20,6 +19,7 @@ def test_override_via_env(monkeypatch, tmp_path):
     assert p.db == tmp_path / "inboxcleaner.db"
     assert p.token == tmp_path / "token.json"
     assert p.log == tmp_path / "inboxcleaner.log"
+    assert p.config_file == tmp_path / "config.toml"
 
 
 def test_ensure_dirs_creates_parents(tmp_path, monkeypatch):
