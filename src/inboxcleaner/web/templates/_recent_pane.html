@@ -1,13 +1,11 @@
 <div id="recent-pane">
-  <h2>
-    Recent messages
-    {% if selected_sender %}
-      <small>from <code>{{ selected_sender.email }}</code></small>
-      <button class="secondary"
-              hx-get="/recent?group_id={{ group_id }}"
-              hx-target="#recent-pane">Show all</button>
-    {% endif %}
-  </h2>
+  {% if selected_sender %}
+  <div class="filter-banner">
+    <span>Filtered to <code>{{ selected_sender.email }}</code></span>
+    <button hx-get="/recent?group_id={{ group_id }}" hx-target="#recent-pane">Show all ✕</button>
+  </div>
+  {% endif %}
+  <h2>Recent messages</h2>
   {% if recent %}
   <ul class="recent-list">
     {% for r in recent %}

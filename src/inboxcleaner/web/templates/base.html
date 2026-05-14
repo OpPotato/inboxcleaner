@@ -416,6 +416,18 @@
     }
     tr.sender-row { cursor: pointer; }
     tr.sender-row:hover .email { color: var(--accent); }
+    tr.sender-row.selected {
+      background: var(--hover-bg);
+    }
+    tr.sender-row.selected .email,
+    tr.sender-row.selected em {
+      color: var(--accent);
+    }
+    tr.sender-all em {
+      font-style: italic;
+      color: var(--ink);
+      font-family: var(--display);
+    }
     .hint {
       margin: -0.5rem 0 0.75rem;
       color: var(--muted);
@@ -425,11 +437,26 @@
       letter-spacing: 0.08em;
     }
     .hint small { font-size: inherit; font-family: inherit; }
-    #recent-pane h2 button {
+    .filter-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.5rem 0.85rem;
+      margin: 0 0 1.5rem;
+      background: var(--paper-2);
+      border-left: 3px solid var(--accent);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+    .filter-banner code {
+      color: var(--accent);
+      font-size: 0.9em;
+    }
+    .filter-banner button {
       font-size: 0.7rem;
-      padding: 0.3rem 0.7rem;
-      margin-left: 0.5rem;
-      vertical-align: middle;
+      padding: 0.35rem 0.8rem;
+      flex-shrink: 0;
     }
     .recent-list {
       list-style: none;

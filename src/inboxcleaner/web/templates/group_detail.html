@@ -40,10 +40,24 @@
     <table class="senders-table">
       <thead><tr><th>Email</th><th>Display name</th><th class="col-num">Messages</th></tr></thead>
       <tbody>
+        <tr class="sender-row sender-all selected"
+            hx-get="/recent?group_id={{ group.id }}"
+            hx-target="#recent-pane"
+            hx-on:click="
+              document.querySelectorAll('.sender-row.selected').forEach(r => r.classList.remove('selected'));
+              this.classList.add('selected');
+            ">
+          <td colspan="2"><em>All senders</em></td>
+          <td class="col-num">{{ msg_count }}</td>
+        </tr>
         {% for s in senders %}
         <tr class="sender-row"
             hx-get="/recent?group_id={{ group.id }}&sender_id={{ s.id }}"
-            hx-target="#recent-pane">
+            hx-target="#recent-pane"
+            hx-on:click="
+              document.querySelectorAll('.sender-row.selected').forEach(r => r.classList.remove('selected'));
+              this.classList.add('selected');
+            ">
           <td class="email">{{ s.email }}</td>
           <td>{{ s.display_name or "—" }}</td>
           <td class="col-num">{{ sender_counts[s.id] }}</td>
