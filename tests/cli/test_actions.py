@@ -121,3 +121,20 @@ def test_label_yes_creates_label_and_applies(seeded_home, monkeypatch):
     assert "shopping" in fake.labels
     mod = next(c for c in fake.calls if c[0] == "batch_modify")
     assert fake.labels["shopping"] in mod[1]["add"]
+
+
+def test_unsubscribe_yes_surfaces_http_urls(seeded_home, monkeypatch):
+    _a, group_id, _b = seeded_home
+    fake = FakeGmailClient()
+
+    async def boom(*a, **k):
+        raise NotImplementedError
+
+    fake.send_unsubscribe_mailto = boom  # type: ignore[assignment]
+    monkeypatch.setattr(cli_actions, "_get_client", lambda: fake)
+
+    result = CliRunner().invoke(
+        cli, ["unsubscribe", "--group", str(group_id), "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "https://uniqlo.com/u" in result.output

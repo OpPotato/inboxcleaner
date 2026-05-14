@@ -209,3 +209,45 @@ async def _run_label(group, sender, label_name, dry_run, yes) -> None:
         )
 
     await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)
+
+
+@_cli.command()
+@_target_options
+@_common_options
+def unsubscribe(
+    group: int | None,
+    sender: int | None,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Parse List-Unsubscribe headers and surface HTTP URLs / send mailto opt-outs."""
+    asyncio.run(_run_unsubscribe(group, sender, dry_run, yes))
+
+
+async def _run_unsubscribe(group, sender, dry_run, yes) -> None:
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        target_kind, target_id = _resolve_target(conn, group, sender)
+    finally:
+        conn.close()
+
+    async def runner(client, conn):
+        result = await actions.unsubscribe(
+            client, conn, target_kind=target_kind, target_id=target_id,
+        )
+        if result.http_urls:
+            click.echo("\nOpen these unsubscribe URLs in your browser:")
+            for url in result.http_urls:
+                click.echo(f"  {url}")
+        if result.skipped:
+            click.echo(f"\nSkipped {len(result.skipped)} mailto unsubscribes "
+                       "(gmail.send scope not granted).")
+        return (
+            f"mailto_sent={result.mailto_sent} "
+            f"http_urls={len(result.http_urls)} "
+            f"skipped={len(result.skipped)}"
+        )
+
+    await _confirm_and_run(target_kind, target_id, dry_run, yes, runner)
