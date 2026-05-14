@@ -9,18 +9,35 @@ from datetime import datetime
 from typing import ClassVar
 
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
-from textual.widgets import DataTable, Footer, Header
+from textual.containers import Container, Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Footer, Header, Label
 
-from inboxcleaner.core import repo
+from inboxcleaner.core import actions, repo
 from inboxcleaner.core.config import Paths
 from inboxcleaner.core.db import connect
+from inboxcleaner.core.gmail import GmailClient, RealGmailClient
 
 
 def _open_db():
     paths = Paths.default()
     paths.ensure_dirs()
     return connect(paths.db)
+
+
+def _get_client() -> GmailClient:
+    """Build a Gmail client. Monkeypatched in tests."""
+    from inboxcleaner.cli.main import _load_creds_or_die
+
+    paths = Paths.default()
+    paths.ensure_dirs()
+    if not paths.token.exists():
+        raise RuntimeError(
+            "Not logged in. Run `inboxcleaner login` first."
+        )
+    secret = paths.token.parent / "client_secret.json"
+    creds = _load_creds_or_die(secret, paths.token)
+    return RealGmailClient(creds)
 
 
 def _human_size(n: int) -> str:
@@ -31,6 +48,40 @@ def _human_size(n: int) -> str:
     return f"{n:.0f}TB"
 
 
+class ConfirmActionModal(ModalScreen[bool]):
+    """Preview an action and ask the user to confirm."""
+
+    def __init__(
+        self,
+        action: str,
+        target_id: int,
+        preview: actions.ActionPreview,
+    ) -> None:
+        super().__init__()
+        self.action = action
+        self.target_id = target_id
+        self.preview = preview
+
+    def compose(self) -> ComposeResult:
+        sample_lines = "\n".join(
+            f"  • {s.subject or '(no subject)'}" for s in self.preview.samples
+        ) or "  (no samples)"
+        with Container(id="dialog"):
+            yield Label(f"[b]Confirm {self.action}[/b]")
+            yield Label(
+                f"{self.preview.message_count} messages, "
+                f"{_human_size(self.preview.total_size)}"
+            )
+            yield Label("Sample subjects:")
+            yield Label(sample_lines)
+            with Horizontal():
+                yield Button("Confirm", id="confirm", variant="primary")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm")
+
+
 class InboxCleanerApp(App):
     """The TUI entry point."""
 
@@ -39,6 +90,10 @@ class InboxCleanerApp(App):
     BINDINGS: ClassVar[list] = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
+        ("a", "act('archive')", "Archive"),
+        ("t", "act('trash')", "Trash"),
+        ("l", "act('label')", "Label"),
+        ("u", "act('unsubscribe')", "Unsubscribe"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -127,6 +182,61 @@ class InboxCleanerApp(App):
         gid = self._selected_group_id()
         if gid is not None:
             self._load_detail_for(gid)
+
+    def action_act(self, action_name: str) -> None:
+        gid = self._selected_group_id()
+        if gid is None:
+            self.notify("No group selected.", severity="warning")
+            return
+        conn = _open_db()
+        try:
+            preview = actions.preview(
+                conn, target_kind="group", target_id=gid
+            )
+        finally:
+            conn.close()
+
+        async def after_confirm(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            client = _get_client()
+            conn2 = _open_db()
+            try:
+                if action_name == "archive":
+                    count = await actions.archive(
+                        client, conn2, target_kind="group", target_id=gid
+                    )
+                    summary = f"Archived {count} messages."
+                elif action_name == "trash":
+                    count = await actions.trash(
+                        client, conn2, target_kind="group", target_id=gid
+                    )
+                    summary = f"Trashed {count} messages."
+                elif action_name == "label":
+                    count = await actions.apply_label(
+                        client, conn2,
+                        target_kind="group", target_id=gid,
+                        label_name="inboxcleaner",
+                    )
+                    summary = f"Labeled {count} messages as inboxcleaner."
+                else:  # unsubscribe
+                    result = await actions.unsubscribe(
+                        client, conn2, target_kind="group", target_id=gid
+                    )
+                    summary = (
+                        f"Unsubscribe: {result.mailto_sent} sent, "
+                        f"{len(result.http_urls)} URLs, "
+                        f"{len(result.skipped)} skipped."
+                    )
+            finally:
+                conn2.close()
+            self.notify(summary)
+            self._load_groups()  # refresh counts
+
+        self.push_screen(
+            ConfirmActionModal(action_name, gid, preview),
+            after_confirm,
+        )
 
     def action_refresh(self) -> None:
         self._load_groups()

@@ -3,7 +3,9 @@ import pytest
 from inboxcleaner.core import repo
 from inboxcleaner.core.db import connect
 from inboxcleaner.core.models import Account, Message, Sender
-from inboxcleaner.tui.app import InboxCleanerApp
+from inboxcleaner.tui import app as tui_app_module
+from inboxcleaner.tui.app import ConfirmActionModal, InboxCleanerApp
+from tests.fakes import FakeGmailClient
 
 
 @pytest.fixture
@@ -77,3 +79,42 @@ async def test_selecting_group_populates_senders_and_recent(seeded):
         recent = app.query_one("#recent")
         assert senders.row_count == 1
         assert recent.row_count == 1
+
+
+async def test_pressing_t_opens_trash_modal(seeded):
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("t")
+        await pilot.pause()
+        # Modal screen is now on top
+        assert isinstance(app.screen, ConfirmActionModal)
+        assert app.screen.action == "trash"
+
+
+async def test_confirm_trash_invokes_gmail(seeded, monkeypatch):
+    fake = FakeGmailClient()
+    monkeypatch.setattr(tui_app_module, "_get_client", lambda: fake)
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("t")
+        await pilot.pause()
+        # Click the confirm button
+        await pilot.click("#confirm")
+        await pilot.pause()
+        mod = next(c for c in fake.calls if c[0] == "batch_modify")
+        assert "TRASH" in mod[1]["add"]
+
+
+async def test_cancel_trash_does_not_invoke_gmail(seeded, monkeypatch):
+    fake = FakeGmailClient()
+    monkeypatch.setattr(tui_app_module, "_get_client", lambda: fake)
+    app = InboxCleanerApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("t")
+        await pilot.pause()
+        await pilot.click("#cancel")
+        await pilot.pause()
+        assert not any(c[0] == "batch_modify" for c in fake.calls)
