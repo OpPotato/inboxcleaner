@@ -172,12 +172,14 @@ def senders(sort: str, limit: int, category: str, as_json: bool) -> None:
             return
 
         table = Table(title="Sender groups")
+        table.add_column("ID", justify="right")
         table.add_column("Name")
         table.add_column("Messages", justify="right")
         table.add_column("Total size", justify="right")
         table.add_column("Latest", justify="right")
         for s in summaries:
             table.add_row(
+                str(s.id),
                 s.name,
                 str(s.message_count),
                 _human_size(s.total_size),
