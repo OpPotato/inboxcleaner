@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
-<header class="hero">
-  <h1>inboxcleaner</h1>
-  <p class="tagline">Group your Gmail senders by company. Bulk-act on them.</p>
-</header>
+<section class="hero">
+  <h1>Sort your <span class="accent-em">inbox</span> like a&nbsp;person.</h1>
+  <p class="tagline">Group your Gmail senders by company. Trash, archive, label, unsubscribe — in bulk, from one place.</p>
+</section>
 
 {% if account %}
   <section class="cards">
     <article class="card">
       <h3>Account</h3>
-      <p class="card-value">{{ account.email }}</p>
+      <p class="card-value mono">{{ account.email }}</p>
       <p class="card-sub">Last sync: {{ last_sync or "never" }}</p>
     </article>
     <article class="card">
@@ -25,10 +25,10 @@
 {% else %}
   <article class="empty-state">
     <h2>No synced account yet</h2>
-    <p>Get started with two commands in your terminal:</p>
+    <p>Run these in your terminal:</p>
     <pre><code>uv run inboxcleaner setup
 uv run inboxcleaner sync</code></pre>
-    <p>Then reload this page.</p>
+    <p>Then reload.</p>
   </article>
 {% endif %}
 

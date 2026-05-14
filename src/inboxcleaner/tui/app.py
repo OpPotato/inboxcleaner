@@ -69,12 +69,15 @@ def _sort_value(summary, column: str):
     return 0
 
 
-_GROUP_COLUMNS: list[tuple[str, str]] = [
-    ("ID", "id"),
-    ("Name", "name"),
-    ("Messages", "count"),
-    ("Size", "size"),
-    ("Latest", "date"),
+# (label, key, fixed_width). Fixed widths keep columns from reflowing when
+# we rebuild the table to apply a new sort — that reflow is what causes
+# the rapid-click flicker.
+_GROUP_COLUMNS: list[tuple[str, str, int]] = [
+    ("ID", "id", 6),
+    ("Name", "name", 30),
+    ("Messages", "count", 10),
+    ("Size", "size", 8),
+    ("Latest", "date", 12),
 ]
 
 
@@ -143,19 +146,35 @@ class InboxCleanerApp(App):
         senders.add_columns("Email", "Display", "Count")
         recent = self.query_one("#recent", DataTable)
         recent.add_columns("Date", "Subject")
-        # Groups columns are (re)built in _load_groups so the sort indicator
-        # can be embedded in the header text.
+        # Add the groups columns once with fixed widths. Subsequent re-sorts
+        # only update labels (sort indicator) and rows — never re-add columns,
+        # which is what was causing the rapid-click flicker.
+        groups = self.query_one("#groups", DataTable)
+        for label, key, width in _GROUP_COLUMNS:
+            groups.add_column(label, key=key, width=width)
         self._load_groups()
+
+    def _update_sort_indicators(self) -> None:
+        """Mutate the persistent column labels to show the active sort."""
+        from rich.text import Text
+        from textual.widgets._data_table import ColumnKey
+
+        groups = self.query_one("#groups", DataTable)
+        for label, key, _ in _GROUP_COLUMNS:
+            indicator = ""
+            if self._sort_column == key:
+                indicator = " ↓" if self._sort_direction == "desc" else " ↑"
+            try:
+                groups.columns[ColumnKey(key)].label = Text(label + indicator)
+            except KeyError:
+                continue
+        # Tell Textual the header changed so it repaints just the header row.
+        groups.refresh()
 
     def _load_groups(self) -> None:
         groups = self.query_one("#groups", DataTable)
         prev_gid = self._selected_group_id() if groups.row_count > 0 else None
-        groups.clear(columns=True)
-        for label, key in _GROUP_COLUMNS:
-            if self._sort_column == key:
-                indicator = " ↓" if self._sort_direction == "desc" else " ↑"
-                label = label + indicator
-            groups.add_column(label, key=key)
+        groups.clear()  # rows only; columns persist
 
         conn = _open_db()
         try:
@@ -176,6 +195,8 @@ class InboxCleanerApp(App):
                 _human_date(s.latest_message_date),
                 key=str(s.id),
             )
+
+        self._update_sort_indicators()
 
         if groups.row_count > 0:
             target_row = 0
