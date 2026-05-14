@@ -188,6 +188,67 @@ def senders(sort: str, limit: int, category: str, as_json: bool) -> None:
         conn.close()
 
 
+@cli.command()
+@click.argument("group_id", type=int)
+def show(group_id: int) -> None:
+    """Drill into a sender group: constituent senders and recent messages."""
+    paths = Paths.default()
+    paths.ensure_dirs()
+    conn = connect(paths.db)
+    try:
+        group = repo.get_group(conn, group_id)
+        if group is None:
+            raise click.ClickException(f"No group with id {group_id}.")
+        senders = repo.senders_for_group(conn, group_id)
+        msg_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM message WHERE sender_id IN "
+            "(SELECT id FROM sender WHERE group_id = ?) AND is_trashed = 0",
+            (group_id,),
+        ).fetchone()["n"]
+        unsub_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM message WHERE sender_id IN "
+            "(SELECT id FROM sender WHERE group_id = ?) "
+            "AND is_trashed = 0 AND list_unsubscribe IS NOT NULL",
+            (group_id,),
+        ).fetchone()["n"]
+        recent = conn.execute(
+            """
+            SELECT subject, internal_date FROM message
+            WHERE sender_id IN (SELECT id FROM sender WHERE group_id = ?)
+              AND is_trashed = 0
+            ORDER BY internal_date DESC LIMIT 5
+            """,
+            (group_id,),
+        ).fetchall()
+
+        console = Console(width=200, no_color=True)
+        console.print(
+            f"[bold]{group.name}[/bold] (id={group.id}, {msg_count} messages, "
+            f"{unsub_count} with List-Unsubscribe)"
+        )
+
+        senders_table = Table(title="Senders")
+        senders_table.add_column("Email")
+        senders_table.add_column("Display name")
+        senders_table.add_column("Messages", justify="right")
+        for s in senders:
+            per_sender = conn.execute(
+                "SELECT COUNT(*) AS n FROM message WHERE sender_id = ? AND is_trashed = 0",
+                (s.id,),
+            ).fetchone()["n"]
+            senders_table.add_row(s.email, s.display_name or "", str(per_sender))
+        console.print(senders_table)
+
+        recent_table = Table(title="Recent messages")
+        recent_table.add_column("Date")
+        recent_table.add_column("Subject")
+        for r in recent:
+            recent_table.add_row(_human_date(r["internal_date"]), r["subject"] or "")
+        console.print(recent_table)
+    finally:
+        conn.close()
+
+
 def _human_size(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:

@@ -112,3 +112,71 @@ def test_regroup_rebuilds_auto_groups(tmp_path, monkeypatch):
     ).fetchone()["n"]
     assert distinct_groups == 1
     conn.close()
+
+
+def test_show_group_drill_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    conn = connect(tmp_path / "inboxcleaner.db")
+    acct = repo.upsert_account(conn, Account(email="me@example.com"))
+    g = repo.create_group(conn, name="Uniqlo", created_by="auto")
+    s1 = repo.upsert_sender(
+        conn,
+        Sender(email="a@uniqlo.com", display_name="Uniqlo", domain="uniqlo.com", group_id=g.id),
+    )
+    s2 = repo.upsert_sender(
+        conn,
+        Sender(
+            email="b@email.uniqlo.com",
+            display_name="Uniqlo Newsletter",
+            domain="uniqlo.com",
+            group_id=g.id,
+        ),
+    )
+    repo.upsert_message(
+        conn,
+        Message(
+            id="m1",
+            account_id=acct.id,
+            thread_id="t1",
+            sender_id=s1.id,
+            subject="Spring Sale",
+            internal_date=1_700_000_000_000,
+            size_estimate=4096,
+            category="promotions",
+            labels=["CATEGORY_PROMOTIONS"],
+            list_unsubscribe="<https://uniqlo.com/u>",
+        ),
+    )
+    repo.upsert_message(
+        conn,
+        Message(
+            id="m2",
+            account_id=acct.id,
+            thread_id="t2",
+            sender_id=s2.id,
+            subject="New Arrivals",
+            internal_date=1_700_000_001_000,
+            size_estimate=2048,
+            category="promotions",
+            labels=["CATEGORY_PROMOTIONS"],
+            list_unsubscribe=None,
+        ),
+    )
+    conn.close()
+
+    result = CliRunner().invoke(cli, ["show", str(g.id)])
+    assert result.exit_code == 0
+    assert "Uniqlo" in result.output
+    assert "a@uniqlo.com" in result.output
+    assert "b@email.uniqlo.com" in result.output
+    assert "Spring Sale" in result.output
+    assert "New Arrivals" in result.output
+
+
+def test_show_errors_when_group_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("INBOXCLEANER_HOME", str(tmp_path))
+    conn = connect(tmp_path / "inboxcleaner.db")
+    conn.close()
+    result = CliRunner().invoke(cli, ["show", "999"])
+    assert result.exit_code != 0
+    assert "999" in result.output
